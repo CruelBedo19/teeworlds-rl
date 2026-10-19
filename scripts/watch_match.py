@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
 
 from twrl import TeeworldsEnv, random_action  # noqa: E402
-from twrl.testing import chase_action  # noqa: E402
+from twrl.protocol import EVENT_NAMES  # noqa: E402
+from twrl.testing import chase_actions  # noqa: E402
 import udp_tcp_relay  # noqa: E402
 
 DEMO_DIR = os.path.expanduser("~/.local/share/teeworlds/demos")
@@ -36,8 +37,9 @@ def play(env, args, episodes):
         obs, info = env.reset(seed=args.seed + episode)
         step = 0
         while True:
+            # both are diagnostics, not the learned AI
             if args.policy == "chase":
-                actions = [chase_action(obs[i], rng, step) for i in range(2)]
+                actions = chase_actions(info["agents"], rng, step)
             else:
                 actions = [random_action(rng), random_action(rng)]
             obs, _, _, truncated, info = env.step(actions)
@@ -45,13 +47,15 @@ def play(env, args, episodes):
             if truncated:
                 break
         episode += 1
-        print("episode %d done: AI-1 score %d, AI-2 score %d" % (
-            info["episode_id"], info["events"][0]["score"], info["events"][1]["score"]), flush=True)
+        score = info["events"][:, EVENT_NAMES.index("score")]
+        print("episode %d done: AI-1 score %d, AI-2 score %d" % (info["episode_id"], score[0], score[1]), flush=True)
 
 
 def run_live(args):
     port = int(subprocess.run(["freeport", "-u"], check=True, capture_output=True, text=True).stdout.split()[0])
     sock_path = os.path.abspath(os.path.expanduser(args.relay_socket))
+    if udp_tcp_relay.socket_in_use(sock_path):
+        sys.exit("a match is already being served on %s; stop it first or pass --relay-socket" % sock_path)
     relay_args = argparse.Namespace(listen_unix=sock_path, listen_tcp=None, udp="127.0.0.1:%d" % port)
     threading.Thread(target=udp_tcp_relay.run_server, args=(relay_args,), daemon=True).start()
     time.sleep(0.2)

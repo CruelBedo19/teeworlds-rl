@@ -1,0 +1,587 @@
+From 7a1e8d2883301f5370411318ec00169f90d801c7 Mon Sep 17 00:00:00 2001
+From: teeworlds-rl <noreply@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 23:35:51 +0200
+Subject: [PATCH] RL bridge protocol v2: spatial observation and seeded spawns
+
+Phase 2 of the teeworlds-rl project. Actions are unchanged; the
+observation becomes fixed size, normalized and local.
+
+- Per agent: a 33x25 tile window of collision bytes (solid, death,
+  no hook) centered on the agent, cut from a copy of the map made once,
+  and a 67 float vector: own movement and combat state, the opponent
+  only inside the rectangle a human client would be sent (with a line
+  of fire bit from CCollision::IntersectLine), the four nearest
+  projectiles in view and the episode progress. A raw state block is
+  kept for tests and logging.
+- HELLO sends the map's collision once so the trainer can check grids.
+- The first spawn of an episode puts the agents on two different map
+  spawn points from the bridge's own seeded generator, through one hook
+  in CPlayer::TryRespawn that only applies while the bridge runs.
+  Respawns and everything without the bridge are unchanged.
+---
+ src/game/server/gamecontroller.h |   2 +
+ src/game/server/player.cpp       |   5 +-
+ src/game/server/rlenv.cpp        | 289 ++++++++++++++++++++++++++-----
+ src/game/server/rlenv.h          |  55 +++++-
+ 4 files changed, 297 insertions(+), 54 deletions(-)
+
+diff --git a/src/game/server/gamecontroller.h b/src/game/server/gamecontroller.h
+index ca467b3..4cf8332 100644
+--- a/src/game/server/gamecontroller.h
++++ b/src/game/server/gamecontroller.h
+@@ -17,6 +17,8 @@
+ */
+ class IGameController
+ {
++	friend class CRlEnv; // reads the spawn points
++
+ 	class CGameContext *m_pGameServer;
+ 	class CConfig *m_pConfig;
+ 	class IServer *m_pServer;
+diff --git a/src/game/server/player.cpp b/src/game/server/player.cpp
+index b41d7fa..41180bf 100644
+--- a/src/game/server/player.cpp
++++ b/src/game/server/player.cpp
+@@ -6,6 +6,7 @@
+ #include "gamecontext.h"
+ #include "gamecontroller.h"
+ #include "player.h"
++#include "rlenv.h"
+ 
+ 
+ MACRO_ALLOC_POOL_ID_IMPL(CPlayer, MAX_CLIENTS)
+@@ -462,7 +463,9 @@ void CPlayer::TryRespawn()
+ {
+ 	vec2 SpawnPos;
+ 
+-	if(!GameServer()->m_pController->CanSpawn(m_Team, &SpawnPos))
++	// the rl bridge may pick the first spawn of an episode, see CRlEnv::TakeSpawn
++	if(!(GameServer()->m_pRlEnv && GameServer()->m_pRlEnv->TakeSpawn(m_ClientID, &SpawnPos)) &&
++		!GameServer()->m_pController->CanSpawn(m_Team, &SpawnPos))
+ 		return;
+ 
+ 	m_Spawning = false;
+diff --git a/src/game/server/rlenv.cpp b/src/game/server/rlenv.cpp
+index b75d4e4..6a5e0f8 100644
+--- a/src/game/server/rlenv.cpp
++++ b/src/game/server/rlenv.cpp
+@@ -16,16 +16,20 @@
+ 
+ #include "entities/character.h"
+ #include "gamecontext.h"
++#include "entities/projectile.h"
+ #include "gamecontroller.h"
+ #include "player.h"
+ #include "rlenv.h"
+ 
+ // the wire format is the in-memory layout, so make sure no padding sneaks in
+ typedef char CHeaderSizeCheck[sizeof(CRlEnv::CHeader) == 16 ? 1 : -1];
+-typedef char CHelloSizeCheck[sizeof(CRlEnv::CHello) == 56 ? 1 : -1];
++typedef char CHelloSizeCheck[sizeof(CRlEnv::CHello) == 76 ? 1 : -1];
+ typedef char CResetSizeCheck[sizeof(CRlEnv::CReset) == 8 ? 1 : -1];
+ typedef char CActionSizeCheck[sizeof(CRlEnv::CAction) == 24 ? 1 : -1];
+-typedef char CAgentObsSizeCheck[sizeof(CRlEnv::CAgentObs) == 24+4*CRlEnv::OBS_DIM ? 1 : -1];
++typedef char CAgentInfoSizeCheck[sizeof(CRlEnv::CAgentInfo) == 40 ? 1 : -1];
++typedef char CAgentObsSizeCheck[sizeof(CRlEnv::CAgentObs) == 24+40+4*CRlEnv::VEC_DIM+CRlEnv::GRID_BYTES ? 1 : -1];
++// the observation layout has one slot per weapon
++typedef char CWeaponCountCheck[NUM_WEAPONS == 6 ? 1 : -1];
+ typedef char CObsSizeCheck[sizeof(CRlEnv::CObs) == 20+CRlEnv::NUM_AGENTS*sizeof(CRlEnv::CAgentObs) ? 1 : -1];
+ typedef char CErrorSizeCheck[sizeof(CRlEnv::CError) == 68 ? 1 : -1];
+ 
+@@ -54,10 +58,18 @@ CRlEnv::CRlEnv(CGameContext *pGameServer)
+ 	}
+ 	mem_zero(m_aAction, sizeof(m_aAction));
+ 	ClearEvents();
++	m_pMap = 0;
++	m_MapWidth = 0;
++	m_MapHeight = 0;
++	m_RngState = 1;
++	m_NumSpawnPoints = 0;
++	for(int i = 0; i < NUM_AGENTS; i++)
++		m_aSpawnPending[i] = false;
+ }
+ 
+ CRlEnv::~CRlEnv()
+ {
++	delete[] m_pMap;
+ #if defined(CONF_FAMILY_UNIX)
+ 	if(m_Socket >= 0)
+ 		close(m_Socket);
+@@ -129,19 +141,39 @@ bool CRlEnv::Init()
+ 		GameServer()->m_pController->OnPlayerConnect(pPlayer);
+ 	}
+ 
++	// every map spawn point counts in dm, see IGameController::CanSpawn
++	IGameController *pController = GameServer()->m_pController;
++	for(int Type = 0; Type < 3; Type++)
++		for(int i = 0; i < pController->m_aNumSpawnPoints[Type] && m_NumSpawnPoints < MAX_SPAWN_POINTS; i++)
++			m_aSpawnPoints[m_NumSpawnPoints++] = pController->m_aaSpawnPoints[Type][i];
++
++	CCollision *pCollision = GameServer()->Collision();
++	int MapWidth = m_MapWidth = pCollision->GetWidth();
++	int MapHeight = m_MapHeight = pCollision->GetHeight();
+ 	CHello Hello;
+ 	mem_zero(&Hello, sizeof(Hello));
+ 	Hello.m_NumAgents = NUM_AGENTS;
+-	Hello.m_ObsDim = OBS_DIM;
++	Hello.m_VecDim = VEC_DIM;
++	Hello.m_GridWidth = GRID_WIDTH;
++	Hello.m_GridHeight = GRID_HEIGHT;
+ 	Hello.m_ActionSize = sizeof(CAction);
+ 	Hello.m_ActionTicks = m_ActionTicks;
+ 	Hello.m_TickSpeed = GameServer()->Server()->TickSpeed();
+ 	Hello.m_EpisodeTicks = m_EpisodeTicks;
++	Hello.m_MapWidth = MapWidth;
++	Hello.m_MapHeight = MapHeight;
++	Hello.m_NumSpawnPoints = m_NumSpawnPoints;
+ 	str_copy(Hello.m_aMap, pConfig->m_SvMap, sizeof(Hello.m_aMap));
+-	if(!SendMsg(MSG_HELLO, 0, &Hello, sizeof(Hello)))
++
++	// the grids are cut from this copy, and the trainer side gets it once to check observations
++	m_pMap = new unsigned char[MapWidth*MapHeight];
++	for(int y = 0; y < MapHeight; y++)
++		for(int x = 0; x < MapWidth; x++)
++			m_pMap[y*MapWidth+x] = pCollision->GetCollisionAt(x*32.0f+16.0f, y*32.0f+16.0f)&7;
++	if(!SendMsg(MSG_HELLO, 0, &Hello, sizeof(Hello), m_pMap, MapWidth*MapHeight))
+ 		return false;
+ 
+-	dbg_msg("rl", "bridge connected to '%s', action_ticks=%d episode_ticks=%d", pConfig->m_SvRlSocket, m_ActionTicks, m_EpisodeTicks);
++	dbg_msg("rl", "bridge connected to '%s', action_ticks=%d episode_ticks=%d spawn_points=%d", pConfig->m_SvRlSocket, m_ActionTicks, m_EpisodeTicks, m_NumSpawnPoints);
+ 	return true;
+ #endif
+ }
+@@ -290,7 +322,12 @@ void CRlEnv::StartEpisode(unsigned Seed)
+ 		return;
+ 	}
+ 	if(Seed)
++	{
+ 		srand(Seed);
++		m_RngState = Seed*2654435761u ^ 0x9E3779B9u;
++		if(!m_RngState)
++			m_RngState = 1;
++	}
+ 
+ 	// same as the restart command: StartMatch, which resets world, scores and respawn
+ 	// timers on the next world tick, see IGameController::OnReset
+@@ -307,6 +344,37 @@ void CRlEnv::StartEpisode(unsigned Seed)
+ 	}
+ 	mem_zero(m_aAction, sizeof(m_aAction));
+ 	ClearEvents();
++
++	// two different spawn points; maps with fewer keep the native choice
++	if(m_NumSpawnPoints >= NUM_AGENTS)
++	{
++		int First = NextRandom()%m_NumSpawnPoints;
++		int Second = NextRandom()%(m_NumSpawnPoints-1);
++		if(Second >= First)
++			Second++;
++		m_aSpawnPos[0] = m_aSpawnPoints[First];
++		m_aSpawnPos[1] = m_aSpawnPoints[Second];
++		m_aSpawnPending[0] = m_aSpawnPending[1] = true;
++	}
++}
++
++unsigned CRlEnv::NextRandom()
++{
++	// xorshift32, separate from rand() so the game's own random stream is untouched
++	m_RngState ^= m_RngState<<13;
++	m_RngState ^= m_RngState>>17;
++	m_RngState ^= m_RngState<<5;
++	return m_RngState;
++}
++
++bool CRlEnv::TakeSpawn(int ClientID, vec2 *pPos)
++{
++	int Agent = AgentIndex(ClientID);
++	if(Agent < 0 || !m_aSpawnPending[Agent] || GameServer()->m_World.m_Paused || GameServer()->m_World.m_ResetRequested)
++		return false;
++	*pPos = m_aSpawnPos[Agent];
++	m_aSpawnPending[Agent] = false;
++	return true;
+ }
+ 
+ int CRlEnv::AgentIndex(int ClientID) const
+@@ -407,6 +475,30 @@ void CRlEnv::ClearEvents()
+ 	mem_zero(m_aEvents, sizeof(m_aEvents));
+ }
+ 
++static float Clampf(float Value, float Low, float High)
++{
++	return Value < Low ? Low : (Value > High ? High : Value);
++}
++
++// idle, flying, grabbed, retracting
++static void HookOneHot(int State, float *pOut)
++{
++	if(State == HOOK_IDLE)
++		pOut[0] = 1.0f;
++	else if(State == HOOK_FLYING)
++		pOut[1] = 1.0f;
++	else if(State == HOOK_GRABBED)
++		pOut[2] = 1.0f;
++	else
++		pOut[3] = 1.0f;
++}
++
++// the region a client receives entities for, see CEntity::NetworkClipped
++static bool InView(vec2 Delta)
++{
++	return absolute(Delta.x) <= 1000.0f && absolute(Delta.y) <= 800.0f && length(Delta) <= 1100.0f;
++}
++
+ void CRlEnv::BuildObs(CObs *pObs)
+ {
+ 	mem_zero(pObs, sizeof(*pObs));
+@@ -415,52 +507,150 @@ void CRlEnv::BuildObs(CObs *pObs)
+ 	pObs->m_ServerTick = GameServer()->Server()->Tick();
+ 	if(!GameServer()->m_pController->IsGameRunning())
+ 		pObs->m_Flags |= FLAG_GAME_NOT_RUNNING;
+-
+ 	for(int i = 0; i < NUM_AGENTS; i++)
+-	{
+-		CAgentObs *pAgent = &pObs->m_aAgents[i];
+-		*pAgent = m_aEvents[i];
+-		CPlayer *pPlayer = GameServer()->m_apPlayers[m_aClientID[i]];
+-		CPlayer *pOppPlayer = GameServer()->m_apPlayers[m_aClientID[NUM_AGENTS-1-i]];
+-		pAgent->m_Score = pPlayer->m_Score;
++		BuildAgentObs(i, &pObs->m_aAgents[i]);
++}
+ 
+-		// dead characters read as all zeros apart from the alive flag
+-		CCharacter *pSelf = pPlayer->GetCharacter();
+-		CCharacter *pOpp = pOppPlayer->GetCharacter();
+-		float *pOut = pAgent->m_aObs;
++// Layout of m_aVec, everything scaled to roughly [-1, 1] and clamped:
++//  0 alive  1-2 velocity/32  3-4 position inside the tile  5 health/10  6 armor/10
++//  7-12 weapon one-hot  13 ammo/10 (1 = unlimited)  14 reload/50  15 grounded  16-17 jumped bits
++//  18-21 hook idle/flying/grabbed/retracting  22-23 hook offset/380  24 hooking the opponent
++//  25 opponent in view  26 dx/1000  27 dy/800  28-29 relative velocity/32  30-35 weapon one-hot
++//  36-39 hook one-hot  40 hooking us  41 clear line of fire
++//  42-65 four nearest projectiles in view: present, dx/1000, dy/800, velocity/32 (2), hostile
++//  66 episode progress
++void CRlEnv::BuildAgentObs(int Agent, CAgentObs *pOut)
++{
++	*pOut = m_aEvents[Agent];
++	CPlayer *pPlayer = GameServer()->m_apPlayers[m_aClientID[Agent]];
++	CPlayer *pOppPlayer = GameServer()->m_apPlayers[m_aClientID[NUM_AGENTS-1-Agent]];
++	pOut->m_Score = pPlayer->m_Score;
++	float *pVec = pOut->m_aVec;
++	pVec[66] = Clampf(m_EpisodeTick / (float)m_EpisodeTicks, 0.0f, 1.0f);
++
++	// a dead agent sees nothing but the clock
++	CCharacter *pSelf = pPlayer->GetCharacter();
++	if(!pSelf)
++		return;
++	CCharacter *pOpp = pOppPlayer->GetCharacter();
++	const CCharacterCore *pCore = &pSelf->m_Core;
++	vec2 Pos = pCore->m_Pos;
++	int TileX = (int)floorf(Pos.x/32.0f);
++	int TileY = (int)floorf(Pos.y/32.0f);
++
++	CAgentInfo *pInfo = &pOut->m_Info;
++	pInfo->m_PosX = Pos.x;
++	pInfo->m_PosY = Pos.y;
++	pInfo->m_VelX = pCore->m_Vel.x;
++	pInfo->m_VelY = pCore->m_Vel.y;
++	pInfo->m_Alive = 1;
++	pInfo->m_Health = pSelf->m_Health;
++	pInfo->m_Armor = pSelf->m_Armor;
++	pInfo->m_Weapon = pSelf->m_ActiveWeapon;
++	pInfo->m_Ammo = pSelf->m_aWeapons[pSelf->m_ActiveWeapon].m_Ammo;
++	pInfo->m_HookState = pCore->m_HookState;
++
++	pVec[0] = 1.0f;
++	pVec[1] = Clampf(pCore->m_Vel.x/32.0f, -5.0f, 5.0f);
++	pVec[2] = Clampf(pCore->m_Vel.y/32.0f, -5.0f, 5.0f);
++	pVec[3] = Pos.x/32.0f - TileX;
++	pVec[4] = Pos.y/32.0f - TileY;
++	pVec[5] = Clampf(pSelf->m_Health/10.0f, 0.0f, 1.0f);
++	pVec[6] = Clampf(pSelf->m_Armor/10.0f, 0.0f, 1.0f);
++	pVec[7+pSelf->m_ActiveWeapon] = 1.0f;
++	pVec[13] = pInfo->m_Ammo < 0 ? 1.0f : Clampf(pInfo->m_Ammo/10.0f, 0.0f, 1.0f);
++	pVec[14] = Clampf(pSelf->m_ReloadTimer/50.0f, 0.0f, 1.0f);
++	pVec[15] = pSelf->IsGrounded() ? 1.0f : 0.0f;
++	pVec[16] = (pCore->m_Jumped&1) ? 1.0f : 0.0f;
++	pVec[17] = (pCore->m_Jumped&2) ? 1.0f : 0.0f;
++	HookOneHot(pCore->m_HookState, pVec+18);
++	if(pCore->m_HookState > HOOK_IDLE) // the hook position is stale while idle or retracted
++	{
++		pVec[22] = Clampf((pCore->m_HookPos.x-Pos.x)/380.0f, -1.5f, 1.5f);
++		pVec[23] = Clampf((pCore->m_HookPos.y-Pos.y)/380.0f, -1.5f, 1.5f);
++	}
++	pVec[24] = pCore->m_HookedPlayer == m_aClientID[NUM_AGENTS-1-Agent] ? 1.0f : 0.0f;
+ 
+-		if(pSelf)
++	// the opponent only within what a human player's client would be sent; walls do not hide
++	// players in teeworlds, so whether a shot would get through is a separate bit
++	if(pOpp)
++	{
++		const CCharacterCore *pOppCore = &pOpp->m_Core;
++		vec2 Delta = pOppCore->m_Pos - Pos;
++		if(InView(Delta))
+ 		{
+-			pOut[0] = 1.0f;
+-			pOut[1] = pSelf->m_Core.m_Pos.x;
+-			pOut[2] = pSelf->m_Core.m_Pos.y;
+-			pOut[3] = pSelf->m_Core.m_Vel.x;
+-			pOut[4] = pSelf->m_Core.m_Vel.y;
+-			pOut[5] = pSelf->m_Health;
+-			pOut[6] = pSelf->m_Armor;
+-			pOut[7] = pSelf->m_ActiveWeapon;
+-			pOut[8] = pSelf->m_aWeapons[pSelf->m_ActiveWeapon].m_Ammo;
+-			pOut[9] = pSelf->m_ReloadTimer;
+-			pOut[10] = pSelf->IsGrounded() ? 1.0f : 0.0f;
+-			pOut[11] = pSelf->m_Core.m_Jumped;
+-			pOut[12] = pSelf->m_Core.m_HookState;
+-			pOut[13] = pSelf->m_Core.m_HookPos.x - pSelf->m_Core.m_Pos.x;
+-			pOut[14] = pSelf->m_Core.m_HookPos.y - pSelf->m_Core.m_Pos.y;
++			pVec[25] = 1.0f;
++			pVec[26] = Delta.x/1000.0f;
++			pVec[27] = Delta.y/800.0f;
++			pVec[28] = Clampf((pOppCore->m_Vel.x-pCore->m_Vel.x)/32.0f, -5.0f, 5.0f);
++			pVec[29] = Clampf((pOppCore->m_Vel.y-pCore->m_Vel.y)/32.0f, -5.0f, 5.0f);
++			pVec[30+pOpp->m_ActiveWeapon] = 1.0f;
++			HookOneHot(pOppCore->m_HookState, pVec+36);
++			pVec[40] = pOppCore->m_HookedPlayer == m_aClientID[Agent] ? 1.0f : 0.0f;
++			pVec[41] = GameServer()->Collision()->IntersectLine(Pos, pOppCore->m_Pos, 0, 0) ? 0.0f : 1.0f;
+ 		}
+-		if(pOpp)
++	}
++
++	// nearest projectiles in view, at the position of the last simulated tick
++	int TickSpeed = GameServer()->Server()->TickSpeed();
++	int Now = GameServer()->Server()->Tick()-1;
++	vec2 aProjDelta[NUM_PROJECTILES], aProjVel[NUM_PROJECTILES];
++	float aProjDist[NUM_PROJECTILES];
++	int aProjHostile[NUM_PROJECTILES];
++	int NumProj = 0;
++	for(CEntity *pEnt = GameServer()->m_World.FindFirst(CGameWorld::ENTTYPE_PROJECTILE); pEnt; pEnt = pEnt->TypeNext())
++	{
++		CProjectile *pProj = (CProjectile *)pEnt;
++		CNetObj_Projectile Info;
++		pProj->FillInfo(&Info);
++		float Time = max(Now-Info.m_StartTick, 0)/(float)TickSpeed;
++		vec2 ProjPos = pProj->GetPos(Time);
++		vec2 Delta = ProjPos - Pos;
++		if(!InView(Delta))
++			continue;
++		float Dist = length(Delta);
++		int Slot = NumProj < NUM_PROJECTILES ? NumProj++ : NUM_PROJECTILES;
++		while(Slot > 0 && aProjDist[Slot-1] > Dist)
+ 		{
+-			pOut[15] = 1.0f;
+-			if(pSelf)
++			if(Slot < NUM_PROJECTILES)
+ 			{
+-				pOut[16] = pOpp->m_Core.m_Pos.x - pSelf->m_Core.m_Pos.x;
+-				pOut[17] = pOpp->m_Core.m_Pos.y - pSelf->m_Core.m_Pos.y;
++				aProjDelta[Slot] = aProjDelta[Slot-1];
++				aProjVel[Slot] = aProjVel[Slot-1];
++				aProjDist[Slot] = aProjDist[Slot-1];
++				aProjHostile[Slot] = aProjHostile[Slot-1];
+ 			}
+-			pOut[18] = pOpp->m_Core.m_Vel.x;
+-			pOut[19] = pOpp->m_Core.m_Vel.y;
+-			pOut[20] = pOpp->m_ActiveWeapon;
+-			pOut[21] = pOpp->m_Core.m_HookState;
++			Slot--;
++		}
++		if(Slot < NUM_PROJECTILES)
++		{
++			aProjDelta[Slot] = Delta;
++			aProjVel[Slot] = pProj->GetPos(Time+1.0f/TickSpeed) - ProjPos;
++			aProjDist[Slot] = Dist;
++			aProjHostile[Slot] = pProj->GetOwner() != m_aClientID[Agent];
+ 		}
+-		pOut[22] = m_EpisodeTick / (float)m_EpisodeTicks;
++	}
++	for(int i = 0; i < NumProj; i++)
++	{
++		float *pProjVec = pVec+42+i*6;
++		pProjVec[0] = 1.0f;
++		pProjVec[1] = aProjDelta[i].x/1000.0f;
++		pProjVec[2] = aProjDelta[i].y/800.0f;
++		pProjVec[3] = Clampf(aProjVel[i].x/32.0f, -5.0f, 5.0f);
++		pProjVec[4] = Clampf(aProjVel[i].y/32.0f, -5.0f, 5.0f);
++		pProjVec[5] = aProjHostile[i] ? 1.0f : 0.0f;
++	}
++
++	// collision around the agent's tile, row by row from the top: solid 1, death 2, no hook 4;
++	// outside the map the border tiles repeat, like CCollision::GetTile clamps
++	int aColumn[GRID_WIDTH];
++	for(int x = 0; x < GRID_WIDTH; x++)
++		aColumn[x] = clamp(TileX + x - GRID_WIDTH/2, 0, m_MapWidth-1);
++	for(int y = 0; y < GRID_HEIGHT; y++)
++	{
++		const unsigned char *pRow = m_pMap + clamp(TileY + y - GRID_HEIGHT/2, 0, m_MapHeight-1)*m_MapWidth;
++		unsigned char *pOutRow = pOut->m_aGrid + y*GRID_WIDTH;
++		for(int x = 0; x < GRID_WIDTH; x++)
++			pOutRow[x] = pRow[aColumn[x]];
+ 	}
+ }
+ 
+@@ -473,9 +663,8 @@ void CRlEnv::SendObs(int Truncated)
+ 	SendMsg(MSG_OBS, m_PendingSeq, &Obs, sizeof(Obs));
+ }
+ 
+-bool CRlEnv::SendMsg(int Type, unsigned Seq, const void *pData, unsigned Size)
++bool CRlEnv::SendMsg(int Type, unsigned Seq, const void *pData, unsigned Size, const void *pExtra, unsigned ExtraSize)
+ {
+-#if defined(CONF_FAMILY_UNIX)
+ 	char aBuf[sizeof(CHeader)+sizeof(CObs)];
+ 	if(m_Socket < 0 || Size > sizeof(aBuf)-sizeof(CHeader))
+ 		return false;
+@@ -485,15 +674,19 @@ bool CRlEnv::SendMsg(int Type, unsigned Seq, const void *pData, unsigned Size)
+ 	Header.m_Version = PROTOCOL_VERSION;
+ 	Header.m_Type = Type;
+ 	Header.m_Seq = Seq;
+-	Header.m_Size = Size;
++	Header.m_Size = Size+ExtraSize;
+ 	mem_copy(aBuf, &Header, sizeof(Header));
+ 	mem_copy(aBuf+sizeof(Header), pData, Size);
++	return SendAll(aBuf, sizeof(Header)+Size) && (!ExtraSize || SendAll(pExtra, ExtraSize));
++}
+ 
+-	unsigned Total = sizeof(Header)+Size;
++bool CRlEnv::SendAll(const void *pData, unsigned Size)
++{
++#if defined(CONF_FAMILY_UNIX)
+ 	unsigned Sent = 0;
+-	while(Sent < Total)
++	while(Sent < Size)
+ 	{
+-		int Ret = send(m_Socket, aBuf+Sent, Total-Sent, s_SendFlags);
++		int Ret = send(m_Socket, (const char *)pData+Sent, Size-Sent, s_SendFlags);
+ 		if(Ret < 0 && errno == EINTR)
+ 			continue;
+ 		if(Ret <= 0)
+diff --git a/src/game/server/rlenv.h b/src/game/server/rlenv.h
+index 12374e1..eccced0 100644
+--- a/src/game/server/rlenv.h
++++ b/src/game/server/rlenv.h
+@@ -1,6 +1,7 @@
+ #ifndef GAME_SERVER_RLENV_H
+ #define GAME_SERVER_RLENV_H
+ 
++#include <base/vmath.h>
+ #include <generated/protocol.h>
+ 
+ // Lockstep bridge to an external RL trainer over a unix socket. Only created when
+@@ -13,10 +14,15 @@ public:
+ 	enum
+ 	{
+ 		NUM_AGENTS=2,
+-		OBS_DIM=23,
++		NUM_PROJECTILES=4,
++		VEC_DIM=67, // see BuildAgentObs and twrl/protocol.py for the layout
++		GRID_WIDTH=33, // tiles, centered on the agent's tile
++		GRID_HEIGHT=25,
++		GRID_BYTES=(GRID_WIDTH*GRID_HEIGHT+3)/4*4, // one collision byte per tile, padded
++		MAX_SPAWN_POINTS=3*64,
+ 
+ 		PROTOCOL_MAGIC=0x4C525754, // "TWRL"
+-		PROTOCOL_VERSION=1,
++		PROTOCOL_VERSION=2,
+ 
+ 		MSG_HELLO=1,
+ 		MSG_RESET,
+@@ -42,14 +48,20 @@ public:
+ 		unsigned m_Size;
+ 	};
+ 
++	// followed by the map's collision, MapWidth*MapHeight bytes, row by row
+ 	struct CHello
+ 	{
+ 		unsigned m_NumAgents;
+-		unsigned m_ObsDim;
++		unsigned m_VecDim;
++		unsigned m_GridWidth;
++		unsigned m_GridHeight;
+ 		unsigned m_ActionSize;
+ 		unsigned m_ActionTicks;
+ 		unsigned m_TickSpeed;
+ 		unsigned m_EpisodeTicks;
++		unsigned m_MapWidth;
++		unsigned m_MapHeight;
++		unsigned m_NumSpawnPoints;
+ 		char m_aMap[32];
+ 	};
+ 
+@@ -69,6 +81,21 @@ public:
+ 		int m_TargetY;
+ 	};
+ 
++	// raw state for logging and tests; the policy only gets m_aVec and m_aGrid
++	struct CAgentInfo
++	{
++		float m_PosX;
++		float m_PosY;
++		float m_VelX;
++		float m_VelY;
++		int m_Alive;
++		int m_Health;
++		int m_Armor;
++		int m_Weapon;
++		int m_Ammo;
++		int m_HookState;
++	};
++
+ 	struct CAgentObs
+ 	{
+ 		int m_Kills;
+@@ -77,7 +104,9 @@ public:
+ 		int m_DamageDealt;
+ 		int m_DamageTaken;
+ 		int m_Score;
+-		float m_aObs[OBS_DIM];
++		CAgentInfo m_Info;
++		float m_aVec[VEC_DIM];
++		unsigned char m_aGrid[GRID_BYTES];
+ 	};
+ 
+ 	struct CObs
+@@ -108,6 +137,8 @@ public:
+ 
+ 	void OnDamage(int Victim, int From, int Amount);
+ 	void OnDeath(int Victim, int Killer, int Weapon);
++	// the first spawn of an episode goes to a seeded random map spawn point
++	bool TakeSpawn(int ClientID, vec2 *pPos);
+ 
+ private:
+ 	enum
+@@ -137,17 +168,31 @@ private:
+ 	int m_aFireHeld[NUM_AGENTS];
+ 	CAgentObs m_aEvents[NUM_AGENTS];
+ 
++	// collision byte per map tile (solid 1, death 2, no hook 4), built once at Init
++	unsigned char *m_pMap;
++	int m_MapWidth;
++	int m_MapHeight;
++
++	unsigned m_RngState;
++	vec2 m_aSpawnPoints[MAX_SPAWN_POINTS];
++	int m_NumSpawnPoints;
++	vec2 m_aSpawnPos[NUM_AGENTS];
++	bool m_aSpawnPending[NUM_AGENTS];
++
+ 	int AgentIndex(int ClientID) const;
+ 	bool BothAlive();
+ 	void ApplyInputs(bool Neutral);
+ 	void SetActions(const CAction *pActions);
+ 	void ClearEvents();
+ 	void BuildObs(CObs *pObs);
++	void BuildAgentObs(int Agent, CAgentObs *pOut);
++	unsigned NextRandom();
+ 	void SendObs(int Truncated);
+ 	void HandleCommand();
+ 	void StartEpisode(unsigned Seed);
+ 
+-	bool SendMsg(int Type, unsigned Seq, const void *pData, unsigned Size);
++	bool SendMsg(int Type, unsigned Seq, const void *pData, unsigned Size, const void *pExtra=0, unsigned ExtraSize=0);
++	bool SendAll(const void *pData, unsigned Size);
+ 	bool RecvAll(void *pData, unsigned Size);
+ 	void Fail(int Code, const char *pReason);
+ 	void Close(const char *pReason);
+-- 
+2.47.3
+

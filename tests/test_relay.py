@@ -88,6 +88,22 @@ class TestRelay(unittest.TestCase):
             client.terminate()
             client.wait()
 
+    def test_refuses_a_socket_in_use(self):
+        folder = tempfile.mkdtemp(prefix="twrl-relay-")
+        sock_path = os.path.join(folder, "relay.sock")
+        args = argparse.Namespace(listen_unix=sock_path, listen_tcp=None, udp="127.0.0.1:9")
+        threading.Thread(target=udp_tcp_relay.run_server, args=(args,), daemon=True).start()
+        for _ in range(50):
+            if udp_tcp_relay.socket_in_use(sock_path):
+                break
+            time.sleep(0.02)
+        self.assertTrue(udp_tcp_relay.socket_in_use(sock_path))
+        second = subprocess.run([sys.executable, "-I", os.path.join(HERE, "..", "scripts", "udp_tcp_relay.py"), "server",
+                                 "--listen-unix", sock_path, "--udp", "127.0.0.1:9"], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn("already listening", second.stderr)
+        self.assertTrue(udp_tcp_relay.socket_in_use(sock_path))
+
 
 if __name__ == "__main__":
     unittest.main()

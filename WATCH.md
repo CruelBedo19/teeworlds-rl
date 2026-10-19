@@ -10,14 +10,17 @@ box: ~/.twrl-watch/relay.sock (0700 klasör) [udp_tcp_relay server] ─UDP→ 12
 - Agent'lar iki oyuncu slotunu doldurur (`sv_player_slots 2`), bağlanan herkes spectator olur.
 - Agent'lar client'ta `AI-1` ve `AI-2` olarak görünür. Server browser'da oyuncu sayısı 0 görünür, çünkü server tarafı botlar server info'ya girmez.
 - Relay her UDP paketini 2 byte uzunluk önekiyle taşır. Yalnız Python standart kütüphanesi kullanır.
-- Varsayılan harita `lms1`. `--policy chase` yalnız test amaçlı kovalama script'idir, AI değildir.
+- Varsayılan harita `lms1`. Random de `--policy chase` de tanı araçlarıdır, AI değildir: chase yalnız test amaçlı kovalama script'idir ve duvarlara ateş eder.
 
 ## Canlı (box)
 
 ```bash
 cd "${REPO_DIR:?set REPO_DIR to the repo checkout}"
-python3 scripts/watch_match.py live --server-dir ../teeworlds-0.7.5/build-release
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # bir kez, env numpy istiyor
+.venv/bin/python scripts/watch_match.py live --server-dir ../teeworlds-0.7.5/build-release
 ```
+
+Bir relay socket'ini aynı anda tek maç kullanabilir. İkinci bir `live` socket'i devralmak yerine başlamayı reddeder; başka bir yol için `--relay-socket`.
 
 Ctrl+C maçı ve relay'i kapatır.
 
@@ -35,7 +38,7 @@ Teeworlds client'ta F1 konsolu: `connect localhost:8303`.
 
 ```bash
 # box: 5 episode'u (5 dakikalık oyun) birkaç saniyede kaydeder
-python3 scripts/watch_match.py record --server-dir ../teeworlds-0.7.5/build-release --name twrl-random --episodes 5
+.venv/bin/python scripts/watch_match.py record --server-dir ../teeworlds-0.7.5/build-release --name twrl-random --episodes 5
 # Mac
 scp <remote-host>:/home/<user>/.local/share/teeworlds/demos/twrl-random.demo ~/Library/Application\ Support/Teeworlds/demos/
 ```
@@ -45,6 +48,6 @@ Teeworlds client'ta Demos sekmesinden açılır.
 ## Testler
 
 ```bash
-python3 tests/test_relay.py -v
-TWRL_SERVER_DIR=../teeworlds-0.7.5/build-release python3 tests/test_env.py -v
+.venv/bin/python tests/test_relay.py -v
+TWRL_SERVER_DIR=../teeworlds-0.7.5/build-release .venv/bin/python tests/test_env.py -v
 ```

@@ -68,6 +68,18 @@ def send_frame(stream, lock, data):
 
 # -- box side --
 
+def socket_in_use(path):
+    """True if something accepts connections on the unix socket at path."""
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.connect(path)
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
 def serve_connection(conn, target):
     udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp.connect(target)
@@ -112,6 +124,9 @@ def run_server(args):
         # only this user may reach the relay; the socket file alone is not enough on every system
         os.makedirs(folder, mode=0o700, exist_ok=True)
         os.chmod(folder, 0o700)
+        if socket_in_use(path):
+            # never take over a socket another relay is still serving
+            sys.exit("another relay is already listening on " + path + ", pick another socket path")
         if os.path.exists(path):
             os.unlink(path)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
