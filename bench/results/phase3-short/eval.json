@@ -1,0 +1,88 @@
+{
+ "self_play": {
+  "runs/phase3-short/ckpt_0000.pt": {
+   "episodes": 64.0,
+   "kills_per_ep": 0.0,
+   "deaths_per_ep": 0.0,
+   "suicides_per_ep": 0.0,
+   "damage_dealt_per_ep": 2.359375,
+   "damage_taken_per_ep": 2.359375,
+   "shots_per_ep": 110.484375,
+   "hit_rate": 0.021354829585631452,
+   "mean_speed": 3.4338597005208333,
+   "travel_per_ep": 24698.627149045467,
+   "grounded_frac": 0.0455,
+   "hook_frac": 0.4991770833333333,
+   "jump_frac": 0.49878125,
+   "fire_frac": 0.5024375,
+   "opp_visible_frac": 0.6199583333333333,
+   "line_of_fire_when_visible": 0.46753814100409974,
+   "aim_cos_when_visible": 0.0019749325560306993,
+   "opp_dist_when_visible": 505.1170152445876
+  },
+  "runs/phase3-short/ckpt_final.pt": {
+   "episodes": 64.0,
+   "kills_per_ep": 0.09375,
+   "deaths_per_ep": 0.09375,
+   "suicides_per_ep": 0.0,
+   "damage_dealt_per_ep": 4.4375,
+   "damage_taken_per_ep": 4.4375,
+   "shots_per_ep": 113.015625,
+   "hit_rate": 0.03926448223420434,
+   "mean_speed": 3.018670388649987,
+   "travel_per_ep": 23991.388256311417,
+   "grounded_frac": 0.042439405785770136,
+   "hook_frac": 0.503862392494136,
+   "jump_frac": 0.6157727391191035,
+   "fire_frac": 0.42451915559030495,
+   "opp_visible_frac": 0.682887672660933,
+   "line_of_fire_when_visible": 0.5528043232680976,
+   "aim_cos_when_visible": 0.0137014426123161,
+   "opp_dist_when_visible": 435.26532234087307
+  },
+  "random": {
+   "episodes": 64.0,
+   "kills_per_ep": 0.0,
+   "deaths_per_ep": 0.0,
+   "suicides_per_ep": 0.0,
+   "damage_dealt_per_ep": 1.1875,
+   "damage_taken_per_ep": 1.1875,
+   "shots_per_ep": 110.609375,
+   "hit_rate": 0.010735979658143806,
+   "mean_speed": 3.389533447265625,
+   "travel_per_ep": 24804.976315379143,
+   "grounded_frac": 0.04313541666666667,
+   "hook_frac": 0.49953125,
+   "jump_frac": 0.49642708333333335,
+   "fire_frac": 0.5020625,
+   "opp_visible_frac": 0.6303958333333334,
+   "line_of_fire_when_visible": 0.3769457021051588,
+   "aim_cos_when_visible": 0.004994516199433658,
+   "opp_dist_when_visible": 598.8648195360329
+  }
+ },
+ "head_to_head": [
+  {
+   "a": "runs/phase3-short/ckpt_final.pt",
+   "b": "runs/phase3-short/ckpt_0000.pt",
+   "a_kills_per_ep": 0.0,
+   "b_kills_per_ep": 0.015625,
+   "a_damage_dealt_per_ep": 1.515625,
+   "b_damage_dealt_per_ep": 1.65625,
+   "a_suicides_per_ep": 0.0,
+   "b_suicides_per_ep": 0.0,
+   "episodes": 64.0
+  },
+  {
+   "a": "runs/phase3-short/ckpt_final.pt",
+   "b": "random",
+   "a_kills_per_ep": 0.015625,
+   "b_kills_per_ep": 0.0,
+   "a_damage_dealt_per_ep": 1.1875,
+   "b_damage_dealt_per_ep": 1.359375,
+   "a_suicides_per_ep": 0.0,
+   "b_suicides_per_ep": 0.0,
+   "episodes": 64.0
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 # Faz planı
 
-Durum: **Faz 0, 1 ve 2 tamamlandı (2026-10-19).** Faz 3 (PPO) başlamadı, kullanıcı onayı bekleniyor. Mimari ve gerekçeler için [README.md](README.md).
+Durum: **Faz 0, 1 ve 2 tamamlandı (2026-10-19).** Faz 3: PPO altyapısı ve kısa bir deneme koşusu var (2026-10-20); uzun eğitim başlamadı. Mimari ve gerekçeler için [README.md](README.md).
 
 Hedef: iki AI'ın Teeworlds 0.7.5'te 1v1 Deathmatch self-play ile aim, movement, dodge ve combat öğrenmesi.
 
@@ -100,13 +100,32 @@ Faz 2 aynı düzende yaklaşık %20-23 yavaş: Python'da step başına ~20 µs �
 
 ## Faz 3: PPO (eğitim başlangıcı)
 
-- [ ] Küçük harita (lms1), mevcut gözlem ve aksiyon; nişan için ayrık açı kovaları veya sürekli Gauss.
-- [ ] Ödül: öldürme +1, ölme -1, suicide -2, hasar ±0.02. Yakınlık ve nişan ödülü yok.
-- [ ] PyTorch PPO + GAE: grid için küçük CNN, vektör için MLP, iki agent tek ağ (self-play), grad norm 0.5-1.
-- [ ] Worker process'leri (her biri birkaç env) + merkezi toplu inference.
-- [ ] Rakip: kendisi, iki ajan random weights ile başlar. Kural tabanlı bot zorunlu değil.
+- [x] PPO self-play altyapısı: [twrl/ppo.py](twrl/ppo.py), [scripts/train_ppo.py](scripts/train_ppo.py). Tek ağ iki agent'ı da oynar, rastgele ağırlıklardan başlar. Grid için küçük CNN, vektör için MLP, ortak gövde, actor/critic başları. Aksiyon başları: yön 3, zıplama 2, ateş 2, hook 2, nişan 16 yön.
+- [x] Ödüller env'in kendi ağırlıkları, değiştirilmedi (kill +1, death −1, suicide −2, hasar ±0.02). Chase eğitimde yok.
+- [x] Zaman sınırıyla biten episode'larda son gözlemden bootstrap (truncation gerçek son değil).
+- [x] Sonlu loss/gradyan kontrolü (NaN/Inf'te durur), checkpoint kaydetme/yükleme ve devam ettirme testleri: [tests/test_ppo.py](tests/test_ppo.py).
+- [x] Davranış ölçümü: [scripts/eval_policy.py](scripts/eval_policy.py). Ölçümler ödüle girmez.
+- [ ] Uzun eğitim, worker process'leri, ayrık nişanın yeterliliği, hafıza (GRU), rakip havuzu.
 
-Kabul ölçütü: politika random politikayı ve kendi eski checkpoint'lerini belirgin farkla yener. İsabet oranı yalnızca ölçülür, ödüle girmez.
+### Kısa deneme (2026-10-20, `bench/results/phase3-short/`)
+
+lms1, 8 env, 400 güncelleme, 819 200 agent step (~410k env step, ~2.3 saat oyun zamanı), 12.5 dakika, CPU. **Öğrenme kanıtı değil**, yalnız döngünün çalıştığını gösterir.
+
+- Bütün loss, gradyan ve KL değerleri sonlu; grad norm en fazla 1.04 (clip 0.5), approx KL en fazla 0.018. Checkpoint geri yüklenince ağ birebir aynı.
+- Entropi 5.95'ten (düzgün dağılım) ~5.0-5.3'e indi: politika rastgelelikten uzaklaşıyor (zıplama %50 → %62, ateş %50 → %43).
+- Değerlendirme, sabit seed'li 64 agent-episode, stokastik örnekleme:
+
+| | başlangıç (ckpt_0000) | son | düzgün rastgele |
+|---|---|---|---|
+| kill / episode | 0.000 | 0.094 | 0.000 |
+| verilen hasar / episode | 2.36 | 4.44 | 1.19 |
+| isabet oranı (hasar/atış) | 0.021 | 0.039 | 0.011 |
+| rakip görünür | 0.62 | 0.68 | 0.63 |
+| görünürken atış hattı açık | 0.47 | 0.55 | 0.38 |
+| nişan–rakip yönü cos | 0.002 | 0.014 | 0.005 |
+
+- Karşılıklı maç (her iki tarafta 64 episode): son politika başlangıca ve rastgeleye karşı **üstün değil** (hasar 1.52 vs 1.66, 1.19 vs 1.36; kill 0 vs 0.016, 0.016 vs 0). Fark gürültü düzeyinde.
+- Yorum: self-play'de karşılaşma ve hasar biraz artmış olabilir, ama nişan almayı öğrenmemiş (cos ≈ 0) ve rakiplere karşı avantaj yok. Örnek küçük, anlamlılık testi yapılmadı. Ödül çok seyrek: adım başına ortalama ödül ~0.
 
 ## Faz 4: Tam oyun ve self-play
 

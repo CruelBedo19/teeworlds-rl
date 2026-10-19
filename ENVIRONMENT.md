@@ -218,12 +218,20 @@ a human spectator (see [WATCH.md](WATCH.md)), or records a demo at full speed. T
 Spectators only ever connect to a watch server, never to training servers, which run in mode 2
 without snapshots.
 
+## Training (Phase 3, early)
+
+`twrl/ppo.py` trains one network for both agents with PPO, from random weights, on the env's own
+rewards. `scripts/train_ppo.py` runs a bounded trial and saves `ckpt_0000.pt` (untrained) before
+the first update; `scripts/eval_policy.py` measures behaviour and plays checkpoints against each
+other. Needs `torch` (CPU wheel: `pip install torch --index-url https://download.pytorch.org/whl/cpu`).
+
 ## Tests and benchmarks
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt     # numpy
 TWRL_SERVER_DIR=../teeworlds-0.7.5/build-release .venv/bin/python tests/test_env.py -v
 .venv/bin/python tests/test_relay.py -v
+TWRL_SERVER_DIR=../teeworlds-0.7.5/build-release .venv/bin/python tests/test_ppo.py -v
 .venv/bin/python scripts/random_rollout.py --server-dir ../teeworlds-0.7.5/build-release --envs 8 --steps 100000
 .venv/bin/python bench/run_env_bench.py --server-dir ../teeworlds-0.7.5/build-release --envs 1 4 8 12
 ```

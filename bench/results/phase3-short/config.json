@@ -1,0 +1,27 @@
+{
+ "args": {
+  "server_dir": "../teeworlds-0.7.5/build-release",
+  "run_dir": "runs/phase3-short",
+  "map": "lms1",
+  "envs": 8,
+  "steps": 128,
+  "updates": 400,
+  "max_minutes": 20.0,
+  "checkpoint_every": 100,
+  "seed": 1,
+  "threads": 4
+ },
+ "ppo": {
+  "num_envs": 8,
+  "steps": 128,
+  "gamma": 0.99,
+  "lam": 0.95,
+  "epochs": 4,
+  "minibatch": 512,
+  "lr": 0.0003,
+  "clip": 0.2,
+  "ent_coef": 0.01,
+  "vf_coef": 0.5,
+  "max_grad_norm": 0.5
+ }
+}
