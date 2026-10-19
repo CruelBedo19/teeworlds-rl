@@ -2,10 +2,15 @@
 """Short, bounded PPO self-play run from random weights. Not a long training job.
 
     train_ppo.py --server-dir ../teeworlds-0.7.5/build-release --updates 200 --max-minutes 20
+    train_ppo.py --server-dir ... --run-dir runs/x --resume runs/x/ckpt_final.pt --updates 400
 
 Writes runs/<name>/metrics.jsonl, ckpt_0000.pt (the untrained random-weight policy, saved before
-any update), periodic checkpoints and ckpt_final.pt. Stops at --updates or --max-minutes,
-whichever comes first.
+any update), periodic checkpoints and ckpt_final.pt. Stops at --updates (a total, counted across
+resumes) or after --max-minutes of this invocation, whichever comes first.
+
+--resume continues from a checkpoint: weights, optimiser, update and step counters, random
+streams and the env seed stream. Episodes that were running when it was saved are not resumed;
+the environments start fresh episodes, so a resumed run is not bit-identical to an uninterrupted one.
 """
 
 import argparse
@@ -36,7 +41,9 @@ def main():
     ap.add_argument("--max-minutes", type=float, default=20.0)
     ap.add_argument("--checkpoint-every", type=int, default=50)
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--threads", type=int, default=6)
+    ap.add_argument("--compile", action="store_true", help="torch.compile the update (about 1.7x faster here)")
+    ap.add_argument("--resume", help="checkpoint to continue from")
     a = ap.parse_args()
 
     run_dir = a.run_dir or os.path.join("runs", time.strftime("ppo-%Y%m%d-%H%M%S"))
@@ -44,15 +51,29 @@ def main():
     torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
     cfg = PPOConfig(num_envs=a.envs, steps=a.steps)
-    with open(os.path.join(run_dir, "config.json"), "w") as f:
-        json.dump({"args": vars(a), "ppo": vars(cfg)}, f, indent=1)
+    resume = torch.load(a.resume, map_location="cpu", weights_only=False) if a.resume else None
+    if resume:
+        saved = resume.get("args", {})
+        for key in ("map", "envs", "steps", "seed"):
+            if key in saved and saved[key] != getattr(a, key):
+                sys.exit(f"--{key} {getattr(a, key)} does not match the checkpoint ({saved[key]})")
+        if resume["config"] != vars(cfg):
+            sys.exit(f"PPO settings differ from the checkpoint: {resume['config']}")
+    else:
+        with open(os.path.join(run_dir, "config.json"), "w") as f:
+            json.dump({"args": vars(a), "ppo": vars(cfg)}, f, indent=1)
+    extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed")}}
 
     policy = Policy()
     start = time.time()
     with VecTeeworldsEnv(a.envs, a.server_dir, seed=a.seed, map=a.map, grid_format="codes") as venv:
-        trainer = Trainer(venv, policy, cfg, seed=a.seed)
-        save_checkpoint(os.path.join(run_dir, "ckpt_0000.pt"), trainer)
-        log = open(os.path.join(run_dir, "metrics.jsonl"), "w")
+        trainer = Trainer(venv, policy, cfg, seed=a.seed, compile=a.compile)
+        if resume:
+            trainer.load_state_dict(resume)
+            print(f"resumed at update {trainer.update}, {trainer.agent_steps} agent steps", flush=True)
+        else:
+            save_checkpoint(os.path.join(run_dir, "ckpt_0000.pt"), trainer, extra)
+        log = open(os.path.join(run_dir, "metrics.jsonl"), "a" if resume else "w")
         while trainer.update < a.updates and time.time() - start < a.max_minutes * 60:
             t0 = time.time()
             batch = trainer.collect()
@@ -73,9 +94,9 @@ def main():
             if trainer.update % 10 == 0 or trainer.update == 1:
                 print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items()}), flush=True)
             if trainer.update % a.checkpoint_every == 0:
-                save_checkpoint(os.path.join(run_dir, f"ckpt_{trainer.update:04d}.pt"), trainer)
+                save_checkpoint(os.path.join(run_dir, f"ckpt_{trainer.update:04d}.pt"), trainer, extra)
         final = os.path.join(run_dir, "ckpt_final.pt")
-        save_checkpoint(final, trainer)
+        save_checkpoint(final, trainer, extra)
 
         # the saved checkpoint must give back exactly the network that was trained
         probe = flatten_agents(venv.reset())

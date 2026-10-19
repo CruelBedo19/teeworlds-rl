@@ -1,0 +1,77 @@
+[
+ {
+  "envs": 8,
+  "threads": 6,
+  "minibatch": 512,
+  "epochs": 4,
+  "samples_per_update": 2048,
+  "us_per_agent_step": {
+   "inference": 103.1,
+   "env_send": 3.8,
+   "env_wait_recv": 5.7,
+   "env_decode": 2.4,
+   "collect_other": 8.3,
+   "collect_total": 123.2,
+   "update": 552.9
+  },
+  "agent_steps_per_s": 1479,
+  "collect_agent_steps_per_s": 8114,
+  "cpu_cores_during_collect": {
+   "servers": 0.15,
+   "python": 5.96
+  },
+  "cpu_cores_during_update": 5.99,
+  "server_us_per_tick": 17.9,
+  "load1": 3.6
+ },
+ {
+  "envs": 16,
+  "threads": 6,
+  "minibatch": 512,
+  "epochs": 4,
+  "samples_per_update": 4096,
+  "us_per_agent_step": {
+   "inference": 59.5,
+   "env_send": 3.7,
+   "env_wait_recv": 4.3,
+   "env_decode": 1.6,
+   "collect_other": 4.5,
+   "collect_total": 73.6,
+   "update": 559.8
+  },
+  "agent_steps_per_s": 1579,
+  "collect_agent_steps_per_s": 13581,
+  "cpu_cores_during_collect": {
+   "servers": 0.24,
+   "python": 5.95
+  },
+  "cpu_cores_during_update": 5.99,
+  "server_us_per_tick": 17.9,
+  "load1": 4.35
+ },
+ {
+  "envs": 32,
+  "threads": 6,
+  "minibatch": 512,
+  "epochs": 4,
+  "samples_per_update": 8192,
+  "us_per_agent_step": {
+   "inference": 40.9,
+   "env_send": 3.7,
+   "env_wait_recv": 4.0,
+   "env_decode": 1.5,
+   "collect_other": 2.9,
+   "collect_total": 53.0,
+   "update": 568.1
+  },
+  "agent_steps_per_s": 1610,
+  "collect_agent_steps_per_s": 18871,
+  "cpu_cores_during_collect": {
+   "servers": 0.3,
+   "python": 5.97
+  },
+  "cpu_cores_during_update": 5.99,
+  "server_us_per_tick": 15.87,
+  "load1": 5.37
+ }
+]

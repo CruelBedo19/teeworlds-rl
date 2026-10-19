@@ -222,8 +222,12 @@ without snapshots.
 
 `twrl/ppo.py` trains one network for both agents with PPO, from random weights, on the env's own
 rewards. `scripts/train_ppo.py` runs a bounded trial and saves `ckpt_0000.pt` (untrained) before
-the first update; `scripts/eval_policy.py` measures behaviour and plays checkpoints against each
-other. Needs `torch` (CPU wheel: `pip install torch --index-url https://download.pytorch.org/whl/cpu`).
+the first update; `--compile` speeds up the update, `--resume` continues from a checkpoint.
+`scripts/eval_suite.py` runs the fixed evaluation protocol of `twrl/evaluation.py` for a
+checkpoint (seeded starts, uniform random / ckpt_0000 / previous checkpoint, sides swapped).
+Needs `torch` (CPU wheel: `pip install torch --index-url https://download.pytorch.org/whl/cpu`).
+Design measurements: `bench/profile_ppo.py`, `bench/worker_collect.py`, `bench/aim_study.py`,
+`bench/reward_sparsity.py`, results in `bench/results/phase3-design/`.
 
 ## Tests and benchmarks
 

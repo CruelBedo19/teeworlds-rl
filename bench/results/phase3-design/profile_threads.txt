@@ -1,0 +1,9 @@
+# bench/profile_ppo.py, 8 envs, 3 updates each, microseconds per agent step
+threads  inference  env(send+wait+decode)  update  total_agent_steps_per_s  servers_cores_during_collect
+1        145.8      10.0                   1225.0   719                     0.12
+2        115.6      10.1                    785.5  1087                     0.10
+4        107.5       9.4                    580.2  1418                     0.12
+6        106.1      14.0                    540.8  1494                     0.11
+12       243.6      31.5                    877.9   860                     0.07
+# model cost, batch 512, 6 threads: forward 23.8 ms, of which conv1+relu+conv2 15 ms (full 25x33 resolution);
+# forward+backward+adam 126 us/sample eager, 73 us torch.compile, 63 us with a stride-2 first conv, 55 us both

@@ -1,0 +1,6 @@
+# end-to-end train_ppo.py, 14 updates (first 4 dropped), lms1, 6 torch threads, load average 3.6-7.2 (other users)
+envs,compile,agent_steps_per_update,collect_s,train_s,agent_steps_per_s
+8,no,2048,0.25,1.09,1523
+16,no,4096,0.32,2.24,1598
+16,yes,4096,0.27,1.47,2344
+32,yes,8192,0.39,2.88,2503

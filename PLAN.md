@@ -105,7 +105,8 @@ Faz 2 aynı düzende yaklaşık %20-23 yavaş: Python'da step başına ~20 µs �
 - [x] Zaman sınırıyla biten episode'larda son gözlemden bootstrap (truncation gerçek son değil).
 - [x] Sonlu loss/gradyan kontrolü (NaN/Inf'te durur), checkpoint kaydetme/yükleme ve devam ettirme testleri: [tests/test_ppo.py](tests/test_ppo.py).
 - [x] Davranış ölçümü: [scripts/eval_policy.py](scripts/eval_policy.py). Ölçümler ödüle girmez.
-- [ ] Uzun eğitim, worker process'leri, ayrık nişanın yeterliliği, hafıza (GRU), rakip havuzu.
+- [x] Tasarım analizi (2026-10-20, `bench/results/phase3-design/`): darboğaz, worker'lar, nişan temsili, ödül seyrekliği, sabit değerlendirme, checkpoint/resume. Ayrıntı aşağıda.
+- [ ] Uzun eğitim, hafıza (GRU), rakip havuzu.
 
 ### Kısa deneme (2026-10-20, `bench/results/phase3-short/`)
 
@@ -126,6 +127,17 @@ lms1, 8 env, 400 güncelleme, 819 200 agent step (~410k env step, ~2.3 saat oyun
 
 - Karşılıklı maç (her iki tarafta 64 episode): son politika başlangıca ve rastgeleye karşı **üstün değil** (hasar 1.52 vs 1.66, 1.19 vs 1.36; kill 0 vs 0.016, 0.016 vs 0). Fark gürültü düzeyinde.
 - Yorum: self-play'de karşılaşma ve hasar biraz artmış olabilir, ama nişan almayı öğrenmemiş (cos ≈ 0) ve rakiplere karşı avantaj yok. Örnek küçük, anlamlılık testi yapılmadı. Ödül çok seyrek: adım başına ortalama ödül ~0.
+
+### Tasarım analizi (2026-10-20)
+
+- **Darboğaz sinir ağı hesabı.** 8 env'de agent step başına: inference ~107 µs, env (simülasyon + bridge) ~10 µs, PPO update ~555 µs. Collection sırasında 8 server toplam 0.12 çekirdek kullanıyor. Ağın %63'ü tam çözünürlükte (25×33) ilk iki konvolüsyon.
+- **Worker process'leri fayda sağlamıyor:** aynı 6 çekirdekte collection en fazla %12 hızlanıyor (`worker_collect.json`), update hiç. Uygulanmadı. Env sayısını artırmak (inference batch'i) daha etkili.
+- **`torch.compile`** update'i 1.7× hızlandırıyor, sayılar eager ile ~1e-7 aynı; `--compile` olarak eklendi. 6 torch thread en iyisi (12'de SMT yavaşlatıyor).
+- **Uçtan uca** (`throughput.csv`): 8 env eager 1523, 16 env compile 2344, 32 env compile 2503 agent step/s.
+- **Nişan** (`aim_study.json`): gerçek durumlarda kusursuz nişanla bile vurulabilir oran 16 yönde %40, 32'de %69, 64'te %96, sürekli nişanda %100. Bandit öğrenme testinde 2D Gauss vektör 150k örnekte %98 isabet, kategorikler %14-21, açıdan Gauss %31. Öneri: 2D Gauss nişan vektörü (karar kullanıcıda, henüz değiştirilmedi).
+- **Ödül seyrekliği** (`reward_sparsity.json`, ödül değiştirilmeden): sıfırdan farklı ödül agent adımlarının %0.24'ünde (rastgele) ile %0.77'sinde (kısa eğitimin sonu); kill 1/50k ile 1/7.7k agent adımı; 128 adımlık agent segmentlerinin %66-84'ü sinyalsiz; eğitimsiz kritik advantage'ı gürültüyle dolduruyor.
+- **Sabit değerlendirme:** [twrl/evaluation.py](twrl/evaluation.py), [scripts/eval_suite.py](scripts/eval_suite.py). Sabit seed seti, rastgele / ckpt_0000 / önceki checkpoint'e karşı iki taraflı, self-play davranışı; aynı checkpoint iki kez değerlendirilince JSON birebir aynı. Checkpoint başına ~130 s.
+- **Checkpoint/resume:** model, optimizer, update, agent step, RNG'ler (örnekleme, minibatch, torch global), env seed akışı, PPO ayarları ve çalıştırma argümanları; atomik yazma. `--resume` ile `SIGKILL` sonrası devam test edildi. Yarıda kalan episode'lar devam etmez (yeni episode başlar), bu yüzden devam eden koşu kesintisiz koşuyla bit düzeyinde aynı değildir.
 
 ## Faz 4: Tam oyun ve self-play
 

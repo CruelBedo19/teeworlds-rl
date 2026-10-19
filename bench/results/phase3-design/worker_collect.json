@@ -1,0 +1,44 @@
+[
+ {
+  "envs": 8,
+  "workers": 1,
+  "threads_per_worker": 6,
+  "collect_agent_steps_per_s": 7190,
+  "load1": 2.45
+ },
+ {
+  "envs": 8,
+  "workers": 2,
+  "threads_per_worker": 3,
+  "collect_agent_steps_per_s": 7737,
+  "load1": 2.33
+ },
+ {
+  "envs": 8,
+  "workers": 4,
+  "threads_per_worker": 1,
+  "collect_agent_steps_per_s": 7533,
+  "load1": 2.23
+ },
+ {
+  "envs": 16,
+  "workers": 1,
+  "threads_per_worker": 6,
+  "collect_agent_steps_per_s": 12343,
+  "load1": 2.61
+ },
+ {
+  "envs": 16,
+  "workers": 2,
+  "threads_per_worker": 3,
+  "collect_agent_steps_per_s": 12475,
+  "load1": 2.48
+ },
+ {
+  "envs": 16,
+  "workers": 4,
+  "threads_per_worker": 1,
+  "collect_agent_steps_per_s": 13829,
+  "load1": 2.76
+ }
+]

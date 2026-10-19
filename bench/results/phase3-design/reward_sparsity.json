@@ -1,0 +1,134 @@
+[
+ {
+  "actor": "random",
+  "agent_steps": 122880,
+  "agent_episodes": 80,
+  "per_agent_step": {
+   "kill": 1.6276041666666666e-05,
+   "death": 1.6276041666666666e-05,
+   "suicide": 0.0,
+   "damage_dealt": 0.0012369791666666666,
+   "damage_taken": 0.0012369791666666666,
+   "nonzero_event_reward": 0.00244140625
+  },
+  "per_agent_episode": {
+   "kills": 0.025,
+   "damage_dealt": 1.825,
+   "nonzero_reward_steps": 3.75,
+   "return_mean": -3.2092384305570933e-18,
+   "return_std": 0.25659306303951396,
+   "episodes_with_any_reward": 0.5,
+   "episodes_with_a_kill": 0.025
+  },
+  "rollouts": {
+   "with_any_event_reward": 0.7166666666666667,
+   "agent_segments_with_any_event_reward": 0.16041666666666668,
+   "agent_segments_with_a_kill": 0.0020833333333333333,
+   "steps_with_nonzero_reward_incl_bootstrap": 0.00244140625
+  },
+  "advantage": {
+   "mean": 0.0,
+   "std": 0.014509583823382854,
+   "abs_percentiles": {
+    "50": 0.0,
+    "90": 4.608419112628326e-05,
+    "99": 0.01641014590859413,
+    "99.9": 0.03392249345779419
+   },
+   "frac_abs_below_1e-3": 0.9283528645833333,
+   "frac_abs_above_0.1": 0.00068359375
+  },
+  "reward_incl_bootstrap": {
+   "mean": 0.0,
+   "std": 0.005901755765080452
+  }
+ },
+ {
+  "actor": "runs/phase3-short/ckpt_0000.pt",
+  "agent_steps": 122880,
+  "agent_episodes": 80,
+  "per_agent_step": {
+   "kill": 8.138020833333333e-06,
+   "death": 8.138020833333333e-06,
+   "suicide": 0.0,
+   "damage_dealt": 0.0013102213541666666,
+   "damage_taken": 0.0013102213541666666,
+   "nonzero_event_reward": 0.002587890625
+  },
+  "per_agent_episode": {
+   "kills": 0.0125,
+   "damage_dealt": 2.0125,
+   "nonzero_reward_steps": 3.975,
+   "return_mean": -3.2092384305570933e-18,
+   "return_std": 0.18019433953373787,
+   "episodes_with_any_reward": 0.575,
+   "episodes_with_a_kill": 0.0125
+  },
+  "rollouts": {
+   "with_any_event_reward": 0.9166666666666666,
+   "agent_segments_with_any_event_reward": 0.19791666666666666,
+   "agent_segments_with_a_kill": 0.0010416666666666667,
+   "steps_with_nonzero_reward_incl_bootstrap": 0.003238932291666667
+  },
+  "advantage": {
+   "mean": -0.035467371344566345,
+   "std": 0.14218664169311523,
+   "abs_percentiles": {
+    "50": 0.09969185292720795,
+    "90": 0.2396973818540573,
+    "99": 0.379043310880661,
+    "99.9": 0.4900294542312622
+   },
+   "frac_abs_below_1e-3": 0.004988606770833333,
+   "frac_abs_above_0.1": 0.4985270182291667
+  },
+  "reward_incl_bootstrap": {
+   "mean": 0.00014075242506805807,
+   "std": 0.008108830079436302
+  }
+ },
+ {
+  "actor": "runs/phase3-short/ckpt_final.pt",
+  "agent_steps": 122880,
+  "agent_episodes": 80,
+  "per_agent_step": {
+   "kill": 0.00013020833333333333,
+   "death": 0.00013020833333333333,
+   "suicide": 0.0,
+   "damage_dealt": 0.004020182291666666,
+   "damage_taken": 0.004020182291666666,
+   "nonzero_event_reward": 0.007731119791666667
+  },
+  "per_agent_episode": {
+   "kills": 0.2,
+   "damage_dealt": 6.1375,
+   "nonzero_reward_steps": 11.875,
+   "return_mean": -1.1102230246251566e-17,
+   "return_std": 0.6771041278858075,
+   "episodes_with_any_reward": 0.825,
+   "episodes_with_a_kill": 0.2
+  },
+  "rollouts": {
+   "with_any_event_reward": 0.9666666666666667,
+   "agent_segments_with_any_event_reward": 0.3416666666666667,
+   "agent_segments_with_a_kill": 0.016666666666666666,
+   "steps_with_nonzero_reward_incl_bootstrap": 0.008365885416666666
+  },
+  "advantage": {
+   "mean": 0.0007228298927657306,
+   "std": 0.04710938036441803,
+   "abs_percentiles": {
+    "50": 0.0035291840322315693,
+    "90": 0.010943183675408363,
+    "99": 0.06753472238779068,
+    "99.9": 0.8330481648445129
+   },
+   "frac_abs_below_1e-3": 0.1603515625,
+   "frac_abs_above_0.1": 0.008797200520833333
+  },
+  "reward_incl_bootstrap": {
+   "mean": -3.454445732131717e-06,
+   "std": 0.01653190702199936
+  }
+ }
+]
