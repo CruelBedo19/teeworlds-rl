@@ -191,3 +191,7 @@ flowchart LR
 **Kritik risk:** Faz 0'daki tick/sn. Sayı düşükse (örn. <2000 tick/sn/süreç) fiziği Python'da yeniden yazmak veya yalnızca `gamecore` etrafında hafif bir C++ simülatör düşünmek gerekir. Ölçmeden mimari kilitlenmemeli.
 
 **Sonraki adım:** Faz 0 ve Faz 1 için dosya düzeyinde plan.
+
+---
+
+Diğer dosyalar: [PLAN.md](PLAN.md) (faz planı ve kabul ölçütleri), [HANDOFF.md](HANDOFF.md) (yeni oturumda devam etme).
