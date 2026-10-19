@@ -1,0 +1,71 @@
+From e0aa33ac306aa19550346d1b1f90518ec060d500 Mon Sep 17 00:00:00 2001
+From: teeworlds-rl <noreply@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 22:15:55 +0200
+Subject: [PATCH] Name the RL agents and finish demos when the bridge closes
+
+Display only, the game and the RL protocol are unchanged.
+
+- Server side bots have no client slot in use, so ClientName returned
+  "(invalid)" for them. Let SetClientName set a name for a bot slot and
+  ClientName return it; the bridge names its agents AI-1 and AI-2.
+  Bots without a name (dbg_dummies) still read "(invalid)".
+- Run stoprecord before the bridge shuts the server down, so a demo
+  started with the record command gets its length and markers written.
+---
+ src/engine/server/server.cpp | 7 ++++++-
+ src/game/server/rlenv.cpp    | 8 +++++++-
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/src/engine/server/server.cpp b/src/engine/server/server.cpp
+index 205bab9..f8f8771 100644
+--- a/src/engine/server/server.cpp
++++ b/src/engine/server/server.cpp
+@@ -302,7 +302,9 @@ CServer::CServer() : m_DemoRecorder(&m_SnapshotDelta)
+ 
+ void CServer::SetClientName(int ClientID, const char *pName)
+ {
+-	if(ClientID < 0 || ClientID >= MAX_CLIENTS || m_aClients[ClientID].m_State < CClient::STATE_READY || !pName)
++	// server side bots have no client slot in use but may still be given a display name
++	if(ClientID < 0 || ClientID >= MAX_CLIENTS || !pName ||
++		(m_aClients[ClientID].m_State < CClient::STATE_READY && !(m_aClients[ClientID].m_State == CClient::STATE_EMPTY && m_pGameServer->IsClientBot(ClientID))))
+ 		return;
+ 
+ 	const char *pDefaultName = "(1)";
+@@ -429,6 +431,9 @@ int CServer::GetClientVersion(int ClientID) const
+ 
+ const char *CServer::ClientName(int ClientID) const
+ {
++	if(ClientID >= 0 && ClientID < MAX_CLIENTS && m_aClients[ClientID].m_State == CServer::CClient::STATE_EMPTY &&
++		m_aClients[ClientID].m_aName[0] && m_pGameServer->IsClientBot(ClientID))
++		return m_aClients[ClientID].m_aName;
+ 	if(ClientID < 0 || ClientID >= MAX_CLIENTS || m_aClients[ClientID].m_State == CServer::CClient::STATE_EMPTY)
+ 		return "(invalid)";
+ 	if(m_aClients[ClientID].m_State == CServer::CClient::STATE_INGAME)
+diff --git a/src/game/server/rlenv.cpp b/src/game/server/rlenv.cpp
+index 5e9e9f6..b75d4e4 100644
+--- a/src/game/server/rlenv.cpp
++++ b/src/game/server/rlenv.cpp
+@@ -116,6 +116,10 @@ bool CRlEnv::Init()
+ 			return false;
+ 		}
+ 		GameServer()->OnClientConnected(ClientID, true, false);
++		// display only, shown to spectators as AI-1 and AI-2
++		char aName[16];
++		str_format(aName, sizeof(aName), "AI-%d", i+1);
++		GameServer()->Server()->SetClientName(ClientID, aName);
+ 		CPlayer *pPlayer = GameServer()->m_apPlayers[ClientID];
+ 		if(pPlayer->GetTeam() == TEAM_SPECTATORS)
+ 		{
+@@ -567,6 +571,8 @@ void CRlEnv::Close(const char *pReason)
+ #endif
+ 	m_Socket = -1;
+ 	m_State = STATE_CLOSED;
+-	// the server exists for the trainer only, so stop it
++	// the server exists for the trainer only, so stop it, finishing a demo started with the
++	// record command first since a plain shutdown leaves it unfinalized
++	GameServer()->Console()->ExecuteLine("stoprecord");
+ 	GameServer()->Console()->ExecuteLine("shutdown");
+ }
+-- 
+2.47.3
+

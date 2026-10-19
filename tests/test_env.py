@@ -52,6 +52,14 @@ class TestBasics(unittest.TestCase):
     def test_hello(self):
         self.assertEqual((self.env.action_ticks, self.env.tick_speed, self.env.episode_ticks, self.env.map), (2, 50, 3000, "dm1"))
 
+    def test_agent_names(self):
+        self.env.reset(seed=1)
+        with open(self.env.log_path) as f:
+            log = f.read()
+        self.assertIn("team_join player='63:AI-1'", log)
+        self.assertIn("team_join player='62:AI-2'", log)
+        self.assertNotIn("(invalid)", log)
+
     def test_reset_state(self):
         obs, info = self.env.reset(seed=1)
         self.assertEqual((info["episode_id"], info["episode_tick"], info["flags"]), (1, 0, 0))

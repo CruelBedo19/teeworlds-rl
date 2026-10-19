@@ -34,6 +34,6 @@ Oturum olmadan da devam edilebilir: bu repo yeterli bağlamı taşır.
 
 ## Sonraki adım
 
-Önce kullanıcının Mac'inden random agent maçını spectator olarak güvenli izleme konusu (server dışarı açılmayacak). Sonra Faz 2 ([PLAN.md](PLAN.md)). Kullanıcı onayı olmadan başlama.
+Maç izleme hazır: [WATCH.md](WATCH.md) (SSH içinden canlı relay ve demo kaydı, patch 0003). Sonra Faz 2 ([PLAN.md](PLAN.md)). Kullanıcı onayı olmadan başlama.
 
 Testler: `TWRL_SERVER_DIR=<build-release> python3 tests/test_env.py -v`.
