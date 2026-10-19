@@ -4,7 +4,16 @@ Tarih: 2026-10-18. Durum: yalnızca analiz, kod değişikliği yok.
 
 Hedef: iki AI'ın 1v1 Deathmatch'te self-play ile aim, movement, dodge ve combat öğrenmesi.
 
-> Not: Satır numaraları ve bulgular alt ajan raporlarından alındı. Tek tek doğrulanmadı. `SERVER_TICK_SPEED` tanımının yeri doğrulanmadı (değeri 50 Hz). Yollar `teeworlds/src/` altındadır.
+## Temel kararlar (2026-10-19)
+
+- AI'ya strateji kodlanmaz. Yalnızca gözlem (observation), aksiyon (action) ve ödül (reward) tanımlanır; nasıl oynanacağını deneyimle öğrenir.
+- İlk model random weights ile sıfırdan başlar. Behavior cloning (insan oyunundan taklit) kullanılmaz.
+- Ana ödül kill/death'tir. Verilen/alınan hasar küçük yardımcı ödül olabilir. Suicide daha büyük negatif olabilir.
+- Başlangıçta proximity (rakibe yaklaşma) ödülü ve aim (doğru nişan) ödülü yoktur. Amaç reward hacking riskini azaltmak.
+- Basit kural tabanlı bot eğitimin zorunlu başlangıcı değildir. Gerekirse sonradan baseline/değerlendirme rakibi veya curriculum deneyi olarak kullanılabilir.
+- Self-play ileride opponent pool ile yapılır: current, champion, eski checkpoint'ler, baseline.
+
+> Not: Satır numaraları ve bulgular alt ajan raporlarından alındı ve `0.7.5` tag'iyle (commit `4fc25a1`) birebir uyuşmuyor. Örnekler: tick döngüsü `server.cpp:1425`, `FireWeapon` `character.cpp:252`, ağ bekleme sabit `m_NetServer.Wait(5)` (`server.cpp:1490`). `SERVER_TICK_SPEED=50` `engine/shared/protocol.h:81`'de. Server `CEngine` içinde `srand(time_get())` çağırıyor (`engine/shared/engine.cpp:53`). Kod yazmadan önce her referansı kaynakta doğrula. Yollar `teeworlds/src/` altındadır.
 
 ---
 
@@ -141,7 +150,6 @@ Asıl neden büyük olasılıkla ödül seyrekliği ve ham görsel gözlemin bir
 - Anında respawn modu, ödül kancası `TakeDamage`/`Die` içinde.
 - N süreç × K ajan paralelliği.
 - Karma aksiyon uzayı (fire sayacı dahil).
-- İsteğe bağlı davranış klonlama ısınması.
 
 **Kesinlikle yeniden tasarlanır:**
 - IPC: sinyal ve dosya yerine ikili protokol (Unix socket, sonra shared memory).
@@ -151,6 +159,7 @@ Asıl neden büyük olasılıkla ödül seyrekliği ve ham görsel gözlemin bir
 - Reset: süreç yeniden başlatmak yerine süreç içi `ResetGame`.
 - Zaman: `time_get` kapısını kaldırıp tick'leri hızlandırmak (tmlp 50 Hz gerçek zamanda kalıyor).
 - Self-play: rakip havuzu ve kademeli zorluk.
+- Davranış klonlama ısınması alınmaz: model random weights ile sıfırdan başlar.
 - Kod tabanı: 0.6 yerine 0.7.5 üzerine temiz yama.
 
 ---
@@ -178,13 +187,13 @@ flowchart LR
    - vektör: kendi hız/konum/can/zırh/silah/cephane/hook, rakip göreli konum ve hız, yakın mermiler
    - ızgara: küçük ajan merkezli tile haritası (örn. 41×25), CNN ile işlenir
 4. **Aksiyon:** hareket (3), zıpla, hook, ateş, silah (5), nişan açısı (ayrık 32–64 kova). Sürekli Gauss sonra denenebilir.
-5. **Ödül:** öldürme/ölme ana ödül, hasar farkı yardımcı, başlangıçta küçük yakınlık/nişan ödülü (sonra azaltılır). Sıfır toplamlı.
+5. **Ödül:** öldürme/ölme ana ödül; verilen hasar küçük pozitif, alınan hasar küçük negatif yardımcı ödül; suicide daha büyük negatif. Yakınlık ve nişan ödülü yok. Tam sıfır toplamlı değil: kill/death ve (aynı katsayıyla) verilen/alınan hasar iki ajan arasında simetriktir, ama suicide ve kendine verilen hasar yalnızca bir tarafı etkiler.
 6. **Model:** küçük CNN + MLP + isteğe bağlı GRU. PPO, GAE, adaptif entropi.
-7. **Self-play:** başlangıçta basit bot rakibi, sonra checkpoint havuzundan örnekleme (%80 son, %20 eski).
+7. **Self-play:** random weights'ten başlayan iki ajan birbirine karşı oynar; sonra checkpoint havuzundan örnekleme (%80 son, %20 eski). Kural tabanlı bot zorunlu değil; gerekirse baseline/değerlendirme veya curriculum deneyi.
 8. **Aşamalar:**
    - Faz 0: hız ölçümü (tick kapısı yaması, tick/sn).
    - Faz 1: köprü ve Python env, rastgele politika ile uçtan uca doğrulama.
-   - Faz 2: tek silah, düz harita, basit bot karşısında PPO.
+   - Faz 2: tek silah, küçük harita, iki ajan self-play PPO.
    - Faz 3: tam harita, self-play, silah ve pickup'lar.
    - Faz 4: insan client ile izleme modu.
 

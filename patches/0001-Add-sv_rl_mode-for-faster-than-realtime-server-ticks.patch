@@ -1,0 +1,236 @@
+From f3a39fc695671af91d4b7bcb120aa2c24d761917 Mon Sep 17 00:00:00 2001
+From: teeworlds-rl <noreply@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 19:51:42 +0200
+Subject: [PATCH] Add sv_rl_mode for faster-than-realtime server ticks
+
+Phase 0 of the teeworlds-rl project: measure how fast the server can
+simulate without waiting for the wall clock. All new settings default
+to 0 and leave the normal server loop unchanged.
+
+- sv_rl_mode 1 runs one tick per loop iteration and skips the 5 ms
+  network wait; 2 also skips snapshot building, rcon/map list updates
+  and pumps the network only ~10 times per second. Events are still
+  cleared on the same ticks as DoSnapshot would.
+- sv_rl_seed seeds rand() after the config is parsed.
+- sv_rl_bench_ticks prints wall and CPU time over N ticks after a 500
+  tick warmup and stops the server.
+- sv_rl_hash_interval prints an FNV-1a hash of the full demo snapshot
+  every N ticks, for determinism checks.
+
+The mode is latched at startup; human clients are not supported in
+modes 1 and 2.
+---
+ src/engine/server/server.cpp         | 103 +++++++++++++++++++++++++--
+ src/engine/server/server.h           |  12 ++++
+ src/engine/shared/config_variables.h |   5 ++
+ 3 files changed, 114 insertions(+), 6 deletions(-)
+
+diff --git a/src/engine/server/server.cpp b/src/engine/server/server.cpp
+index f01f7cc..205bab9 100644
+--- a/src/engine/server/server.cpp
++++ b/src/engine/server/server.cpp
+@@ -1,6 +1,9 @@
+ /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
+ /* If you are missing that file, acquire a complete release at teeworlds.com.                */
+ 
++#include <stdlib.h> // srand
++#include <time.h> // clock
++
+ #include <base/math.h>
+ #include <base/system.h>
+ 
+@@ -1232,6 +1235,53 @@ void CServer::PumpNetwork()
+ 	m_Econ.Update();
+ }
+ 
++void CServer::RlBenchTick()
++{
++	const int WarmupTicks = 500;
++	if(m_CurrentGameTick < WarmupTicks)
++		return;
++	if(m_CurrentGameTick == WarmupTicks)
++	{
++		m_RlBenchStartTime = time_get();
++		m_RlBenchStartCpu = clock();
++		m_RlCatchups = 0;
++		return;
++	}
++
++	int Ticks = m_CurrentGameTick - WarmupTicks;
++	if(Ticks%10000 != 0 && Ticks != m_RlBenchTicks)
++		return;
++
++	double WallSec = (time_get() - m_RlBenchStartTime) / (double)time_freq();
++	double CpuSec = (clock() - m_RlBenchStartCpu) / (double)CLOCKS_PER_SEC;
++	if(Ticks != m_RlBenchTicks)
++	{
++		dbg_msg("rl", "rl_bench tick=%d tps=%.1f", Ticks, Ticks / WallSec);
++		return;
++	}
++
++	dbg_msg("rl", "rl_bench_done mode=%d ticks=%d wall_s=%.3f cpu_s=%.3f tps=%.1f us_per_tick=%.2f catchups=%d",
++		m_RlMode, Ticks, WallSec, CpuSec, Ticks / WallSec, WallSec * 1000000.0 / Ticks, m_RlCatchups);
++	m_RunServer = 0;
++}
++
++void CServer::RlStateHash()
++{
++	// build the same full snapshot a demo recording gets and hash it with FNV-1a
++	char aData[CSnapshot::MAX_SIZE];
++	m_SnapshotBuilder.Init();
++	GameServer()->OnSnap(-1);
++	int Size = m_SnapshotBuilder.Finish(aData);
++
++	unsigned long long Hash = 14695981039346656037ULL;
++	for(int i = 0; i < Size; i++)
++	{
++		Hash ^= (unsigned char)aData[i];
++		Hash *= 1099511628211ULL;
++	}
++	dbg_msg("rl", "rl_hash tick=%d size=%d h=%016llx", m_CurrentGameTick, Size, Hash);
++}
++
+ const char *CServer::GetMapName()
+ {
+ 	// get the name of the map without his path
+@@ -1317,6 +1367,17 @@ int CServer::Run()
+ 	str_copy(Userdata.m_aName, "", sizeof(Userdata.m_aName));
+ 	m_pStorage->ListDirectory(IStorage::TYPE_ALL, "maps/", MapListEntryCallback, &Userdata);
+ 
++	// rl simulation mode, changing these after startup has no effect
++	m_RlMode = Config()->m_SvRlMode;
++	m_RlBenchTicks = Config()->m_SvRlBenchTicks;
++	m_RlHashInterval = Config()->m_SvRlHashInterval;
++	m_RlCatchups = 0;
++	m_RlLastNetPump = 0;
++	if(Config()->m_SvRlSeed)
++		srand(Config()->m_SvRlSeed);
++	if(m_RlMode || Config()->m_SvRlSeed || m_RlBenchTicks || m_RlHashInterval)
++		dbg_msg("rl", "mode=%d seed=%d bench_ticks=%d hash_interval=%d", m_RlMode, Config()->m_SvRlSeed, m_RlBenchTicks, m_RlHashInterval);
++
+ 	// load map
+ 	if(!LoadMap(Config()->m_SvMap))
+ 	{
+@@ -1422,7 +1483,8 @@ int CServer::Run()
+ 				}
+ 			}
+ 
+-			while(t > TickStartTime(m_CurrentGameTick+1))
++			// in rl mode run exactly one tick per loop without waiting for the wall clock
++			while(m_RlMode ? NewTicks == 0 : t > TickStartTime(m_CurrentGameTick+1))
+ 			{
+ 				m_CurrentGameTick++;
+ 				NewTicks++;
+@@ -1444,10 +1506,26 @@ int CServer::Run()
+ 				}
+ 
+ 				GameServer()->OnTick();
++
++				if(m_RlHashInterval && m_CurrentGameTick%m_RlHashInterval == 0)
++					RlStateHash();
++				if(m_RlBenchTicks)
++					RlBenchTick();
+ 			}
++			if(m_RlBenchTicks && NewTicks > 1)
++				m_RlCatchups++;
+ 
+ 			// snap game
+-			if(NewTicks)
++			if(NewTicks && m_RlMode == 2)
++			{
++				// no snapshots, but keep clearing events at the same ticks as DoSnapshot does
++				if(Config()->m_SvHighBandwidth || (m_CurrentGameTick%2) == 0)
++				{
++					GameServer()->OnPreSnap();
++					GameServer()->OnPostSnap();
++				}
++			}
++			else if(NewTicks)
+ 			{
+ 				if(Config()->m_SvHighBandwidth || (m_CurrentGameTick%2) == 0)
+ 					DoSnapshot();
+@@ -1456,10 +1534,22 @@ int CServer::Run()
+ 				UpdateClientMapListEntries();
+ 			}
+ 
+-			// master server stuff
+-			m_Register.RegisterUpdate(m_NetServer.NetType());
++			// in rl mode 2 only look at the network about ten times per second
++			bool PumpNet = true;
++			if(m_RlMode == 2)
++			{
++				PumpNet = t > m_RlLastNetPump + time_freq()/10;
++				if(PumpNet)
++					m_RlLastNetPump = t;
++			}
++
++			if(PumpNet)
++			{
++				// master server stuff
++				m_Register.RegisterUpdate(m_NetServer.NetType());
+ 
+-			PumpNetwork();
++				PumpNetwork();
++			}
+ 
+ 			if(ReportTime < time_get())
+ 			{
+@@ -1487,7 +1577,8 @@ int CServer::Run()
+ 			}
+ 
+ 			// wait for incomming data
+-			m_NetServer.Wait(5);
++			if(!m_RlMode)
++				m_NetServer.Wait(5);
+ 		}
+ 	}
+ 	// disconnect all clients on shutdown
+diff --git a/src/engine/server/server.h b/src/engine/server/server.h
+index 4516f0e..37411b9 100644
+--- a/src/engine/server/server.h
++++ b/src/engine/server/server.h
+@@ -160,6 +160,15 @@ public:
+ 
+ 	int64 m_Lastheartbeat;
+ 
++	// rl simulation mode, all copied from the config once in Run()
++	int m_RlMode;
++	int m_RlBenchTicks;
++	int m_RlHashInterval;
++	int m_RlCatchups;
++	int64 m_RlBenchStartTime;
++	int64 m_RlBenchStartCpu;
++	int64 m_RlLastNetPump;
++
+ 	// map
+ 	enum
+ 	{
+@@ -253,6 +262,9 @@ public:
+ 
+ 	void PumpNetwork();
+ 
++	void RlBenchTick();
++	void RlStateHash();
++
+ 	const char *GetMapName();
+ 	int LoadMap(const char *pMapName);
+ 
+diff --git a/src/engine/shared/config_variables.h b/src/engine/shared/config_variables.h
+index 7a5211e..a5ef156 100644
+--- a/src/engine/shared/config_variables.h
++++ b/src/engine/shared/config_variables.h
+@@ -95,6 +95,11 @@ MACRO_CONFIG_INT(SvRconBantime, sv_rcon_bantime, 5, 0, 1440, CFGFLAG_SAVE|CFGFLA
+ MACRO_CONFIG_INT(SvAutoDemoRecord, sv_auto_demo_record, 0, 0, 1, CFGFLAG_SAVE|CFGFLAG_SERVER, "Automatically record demos")
+ MACRO_CONFIG_INT(SvAutoDemoMax, sv_auto_demo_max, 10, 0, 1000, CFGFLAG_SAVE|CFGFLAG_SERVER, "Maximum number of automatically recorded demos (0 = no limit)")
+ 
++MACRO_CONFIG_INT(SvRlMode, sv_rl_mode, 0, 0, 2, CFGFLAG_SERVER, "Simulation speed mode, read once at startup (0 = realtime, 1 = fast ticks, 2 = fast ticks with minimal snapshot/network work). Modes 1 and 2 do not support human clients")
++MACRO_CONFIG_INT(SvRlSeed, sv_rl_seed, 0, 0, 2147483647, CFGFLAG_SERVER, "Seed rand() with this value at startup (0 = keep the time based seed)")
++MACRO_CONFIG_INT(SvRlBenchTicks, sv_rl_bench_ticks, 0, 0, 2147483647, CFGFLAG_SERVER, "Measure the tick rate over this many ticks after a 500 tick warmup, print it and shut down (0 = off)")
++MACRO_CONFIG_INT(SvRlHashInterval, sv_rl_hash_interval, 0, 0, 2147483647, CFGFLAG_SERVER, "Print a hash of the game state snapshot every this many ticks (0 = off)")
++
+ MACRO_CONFIG_STR(EcBindaddr, ec_bindaddr, 128, "localhost", CFGFLAG_SAVE|CFGFLAG_ECON, "Address to bind the external console to. Anything but 'localhost' is dangerous")
+ MACRO_CONFIG_INT(EcPort, ec_port, 0, 0, 0, CFGFLAG_SAVE|CFGFLAG_ECON, "Port to use for the external console")
+ MACRO_CONFIG_STR(EcPassword, ec_password, 32, "", CFGFLAG_SAVE|CFGFLAG_ECON, "External console password")
+-- 
+2.47.3
+

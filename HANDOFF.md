@@ -6,11 +6,12 @@ Bu repo bir Claude Code oturumunda yapılan analizin çıktısıdır. Yeni bir o
 
 - Analiz bitti: Teeworlds 0.7.5 server ([README.md](README.md) Bölüm 1) ve tmlp (Bölüm 2).
 - Mimari önerisi hazır (Bölüm 3), faz planı [PLAN.md](PLAN.md).
-- **Kod yazılmadı.** Kullanıcı ilk istekte "şimdilik KOD DEĞİŞTİRME, implementation yapma" demişti. Kodlamaya geçmeden önce kullanıcıdan açık onay al.
+- Faz 0 bitti: `sv_rl_mode` patch'i ([patches/](patches/)), benchmark ve determinizm sonuçları [PLAN.md](PLAN.md) Faz 0 bölümünde. Faz 1'e geçmeden önce kullanıcıdan açık onay al.
 
 ## Çalışma ortamı
 
-- Teeworlds kaynağı: `/Users/bedo/Documents/ikinci-beyin/teeworlds` (0.7.5). Yeni makinede ayrıca klonlanmalı.
+- Teeworlds kaynağı: `git clone --branch 0.7.5 https://github.com/teeworlds/teeworlds`, sonra `git -c url."https://github.com/".insteadOf="git://github.com/" submodule update --init` (`.gitmodules` eski `git://` adreslerini kullanıyor). Patch'i `git am patches/*.patch` ile uygula.
+- Build (CMake 4 ile): `CMAKE_POLICY_VERSION_MINIMUM=3.5 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DCLIENT=OFF`. Dummy'li benchmark için ayrıca `-DCMAKE_CXX_FLAGS=-DCONF_DEBUG` ile `build-bench`.
 - Satır numaraları alt ajan raporlarından alındı, tek tek doğrulanmadı. Kod yazmadan önce ilgili dosyalarda kontrol et.
 - `SERVER_TICK_SPEED` tanımının yeri doğrulanmadı (değeri 50).
 
@@ -33,4 +34,4 @@ Oturum olmadan da devam edilebilir: bu repo yeterli bağlamı taşır.
 
 ## Sonraki adım
 
-Faz 0: `sv_rl_mode` ile tick kapısını kaldır, tick/sn ölç, determinizmi doğrula. Sonuca göre mimari kilitlenir.
+Faz 1: köprü ve Python ortamı ([PLAN.md](PLAN.md)). Kullanıcı onayı olmadan başlama.
