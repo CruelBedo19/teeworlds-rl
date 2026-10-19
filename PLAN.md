@@ -1,6 +1,6 @@
 # Faz planı
 
-Durum: **Faz 0 tamamlandı (2026-10-19), karar için kullanıcı onayı bekleniyor.** Faz 1 başlamadı. Mimari ve gerekçeler için [README.md](README.md).
+Durum: **Faz 0 ve Faz 1 tamamlandı (2026-10-19).** Faz 2 başlamadı, kullanıcı onayı bekleniyor. Mimari ve gerekçeler için [README.md](README.md).
 
 Hedef: iki AI'ın Teeworlds 0.7.5'te 1v1 Deathmatch self-play ile aim, movement, dodge ve combat öğrenmesi.
 
@@ -37,15 +37,37 @@ Karar: süreç başına hız 2000 tick/s karar noktasının ~300 katı. Ayrı bi
 
 ## Faz 1: Köprü ve Python ortamı
 
-- [ ] Dummy ajanları Release'te de açan ayar (`CONF_DEBUG` kapısı yerine yeni config).
-- [ ] `IRLBridge` arayüzü: her K tick'te gözlem yaz, aksiyon oku; `CGameContext::OnTick` içinden, `m_World.Tick()` öncesinde.
-- [ ] Girdi enjeksiyonu: `OnPredictedInput` **ve** `OnDirectInput` (ateş yalnız `m_LatestInput` okur).
-- [ ] `ResetEpisode()`: `ResetGame` ile skor, karakter, pickup ve mermileri sıfırla, süreç yeniden başlamasın.
-- [ ] İkili protokol (Unix socket). `step(actions) -> obs, reward, done`.
-- [ ] Python çok ajanlı Gymnasium/PettingZoo benzeri ortam, N süreçli vektörlü sarmalayıcı.
-- [ ] Rastgele politika ile uçtan uca test: 1000 bölüm, çökme yok, sızıntı yok.
+- [x] `sv_rl_socket` ayarlıysa server Python'un dinlediği Unix socket'e bağlanır ve iki agent ekler (`OnClientConnected(id, true)`, Release'te çalışır, `CONF_DEBUG` gerekmez). Patch: [patches/0002-*](patches/), teeworlds branch `rl/phase1`.
+- [x] Lockstep: her `sv_rl_action_ticks` (varsayılan 2) tick'te OBS gönderilir, aksiyon beklenir; `CGameContext::OnTick` başında, `m_World.Tick()` öncesinde.
+- [x] Girdi `CPlayer::OnDirectInput` + `OnPredictedInput` ile, fire sayacı client gibi.
+- [x] Event'ler `CCharacter::TakeDamage` ve `Die` içindeki iki gözlemci hook'tan; reward ağırlıkları Python'da.
+- [x] Reset `restart` komutuyla aynı yol (`DoWarmup(0)` → `StartMatch`), process yeniden başlamaz.
+- [x] Sabit boyutlu binary protokol v1: [twrl/protocol.py](twrl/protocol.py) ve `src/game/server/rlenv.h`.
+- [x] Python ortamı (yalnız stdlib): [twrl/env.py](twrl/env.py); testler [tests/test_env.py](tests/test_env.py); uzun koşu ve ölçüm [scripts/random_rollout.py](scripts/random_rollout.py).
+- [ ] N süreçli vektörlü sarmalayıcı: Faz 2'ye (şimdilik rollout script'i `multiprocessing` ile paralel koşuyor).
 
-Kabul ölçütü: rastgele politika N paralel ortamda kararlı çalışır, bölüm sıfırlama < 10 ms.
+Gözlem v1 (23 float, ham birim): kendi alive, pos, vel, health, armor, weapon, ammo, reload, grounded, jumped, hook state ve göreli hook konumu; rakip alive, göreli pos, vel, weapon, hook state; episode ilerlemesi. Rakibin health/armor/ammo değeri insan oyuncu da göremediği için yok. Aksiyon v1: direction, jump, fire, hook, target_x/y. Silah değişimi yok.
+
+### Sonuç
+
+- 25 entegrasyon testi geçti: hareket, zıplama, ateş, hook, hasar/kill/skor tutarlılığı, debug kill ile suicide, reset, determinizm, hata durumları (bozuk mesaj, yanlış seq, timeout, kopma, server kill, temiz kapanış).
+- Uzun koşu: 3200 episode, 9.6M tick, 8 paralel env. Çökme, protokol hatası, timeout yok. Her step'te `Δskor == kill − suicide`, verilen hasar == rakibin aldığı hasar, kill == rakibin ölümü: 0 ihlal. Server RSS sabit (~15-16 MB, 250 episode'da en fazla +8 KB).
+- Reset süresi p50 0.05 ms (yaklaşık 28 tick).
+- Determinizm: aynı seed ile episode'lar hem aynı süreçte hem taze süreçte birebir aynı; farklı seed farklı; mod 0, 1, 2 aynı. Bridge kapalıyken Faz 0 hash dizisi birebir aynı.
+- ASan/UBSan: yeni koddan rapor yok. Vanilla `CJobPool` kapanışındaki çift `pthread_join` ASan'da exit 1 veriyor (bridge kapalıyken de), kapsam dışı.
+- Throughput (`bench/results/2026-10-19-phase1-scaling.csv`), toplam tick/s, K=2:
+
+| env | random dm1 toplam | chase lms1 toplam | step latency p50 / p99 (µs) |
+|---|---|---|---|
+| 1 | 45 521 | 56 542 | 36 / 60 |
+| 2 | 82 635 | 97 602 | 38 / 64 |
+| 4 | 140 851 | 167 994 | 45 / 75 |
+| 8 | 240 130 | 279 064 | 54 / 89 |
+| 12 | 269 590 | 320 044 | 58 / 269 |
+
+Darboğaz Faz 0'da beklendiği gibi Python ve IPC: server tek başına ~630k tick/s, bridge ile env başına ~45k tick/s.
+
+Not: dm1'de random ajanlar neredeyse hiç karşılaşmıyor (6M tick'te 3 kill). Savaş testleri küçük `lms1` haritasında, yalnız test amaçlı bir kovalama script'iyle ([twrl/testing.py](twrl/testing.py)) yapıldı. Faz 2 için küçük harita seçimi önemli.
 
 ## Faz 2: Basit senaryo ve PPO
 

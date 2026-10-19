@@ -1,0 +1,921 @@
+From 56c02a462635146b3f99d5b44c3f971f6f8843c2 Mon Sep 17 00:00:00 2001
+From: teeworlds-rl <noreply@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 21:42:57 +0200
+Subject: [PATCH] Add an RL environment bridge driven over a unix socket
+
+Phase 1 of the teeworlds-rl project. When sv_rl_socket is set the
+server connects to a trainer, adds two server side players and runs
+them in lockstep: every sv_rl_action_ticks ticks it sends observations
+and event counts and waits for the next pair of actions. Without
+sv_rl_socket nothing changes.
+
+- CRlEnv (game/server/rlenv.*) owns the socket, the fixed size binary
+  protocol, the agents and episode resets. Resets go through the same
+  path as the restart command, so world, scores and respawn timers are
+  reset by the game itself.
+- Actions go through CPlayer::OnDirectInput and OnPredictedInput like
+  network input; fire is counted per press and release like the client.
+- CCharacter::TakeDamage and Die report damage, kills and suicides to
+  the bridge. They only observe, game logic is unchanged.
+- Protocol errors, a lost trainer and sv_rl_timeout shut the server
+  down. sv_rl_debug enables a test only kill command.
+---
+ CMakeLists.txt                         |   2 +
+ src/game/server/entities/character.cpp |   6 +
+ src/game/server/entities/character.h   |   2 +
+ src/game/server/gamecontext.cpp        |  18 +
+ src/game/server/gamecontext.h          |   1 +
+ src/game/server/rlenv.cpp              | 572 +++++++++++++++++++++++++
+ src/game/server/rlenv.h                | 156 +++++++
+ src/game/variables.h                   |   7 +
+ 8 files changed, 764 insertions(+)
+ create mode 100644 src/game/server/rlenv.cpp
+ create mode 100644 src/game/server/rlenv.h
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 65dfdd3..8b84950 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1630,6 +1630,8 @@ set_src(GAME_SERVER GLOB_RECURSE src/game/server
+   gameworld.h
+   player.cpp
+   player.h
++  rlenv.cpp
++  rlenv.h
+ )
+ set(GAME_GENERATED_SERVER
+   src/generated/server_data.cpp
+diff --git a/src/game/server/entities/character.cpp b/src/game/server/entities/character.cpp
+index fcf1236..49423ac 100644
+--- a/src/game/server/entities/character.cpp
++++ b/src/game/server/entities/character.cpp
+@@ -6,6 +6,7 @@
+ #include <game/server/gamecontext.h>
+ #include <game/server/gamecontroller.h>
+ #include <game/server/player.h>
++#include <game/server/rlenv.h>
+ 
+ #include "character.h"
+ #include "laser.h"
+@@ -662,6 +663,8 @@ void CCharacter::Die(int Killer, int Weapon)
+ 	m_Alive = false;
+ 	m_pPlayer->m_RespawnTick = Server()->Tick()+Server()->TickSpeed()/2;
+ 	int ModeSpecial = GameServer()->m_pController->OnCharacterDeath(this, (Killer < 0) ? 0 : GameServer()->m_apPlayers[Killer], Weapon);
++	if(GameServer()->m_pRlEnv)
++		GameServer()->m_pRlEnv->OnDeath(m_pPlayer->GetCID(), Killer, Weapon);
+ 
+ 	char aBuf[256];
+ 	if (Killer < 0)
+@@ -757,6 +760,9 @@ bool CCharacter::TakeDamage(vec2 Force, vec2 Source, int Dmg, int From, int Weap
+ 		m_Health -= Dmg;
+ 	}
+ 
++	if(GameServer()->m_pRlEnv)
++		GameServer()->m_pRlEnv->OnDamage(m_pPlayer->GetCID(), From, (OldHealth-max(m_Health, 0))+(OldArmor-m_Armor));
++
+ 	// create healthmod indicator
+ 	GameServer()->CreateDamage(m_Pos, m_pPlayer->GetCID(), Source, OldHealth-m_Health, OldArmor-m_Armor, From == m_pPlayer->GetCID());
+ 
+diff --git a/src/game/server/entities/character.h b/src/game/server/entities/character.h
+index 73a80b3..b6ab4f6 100644
+--- a/src/game/server/entities/character.h
++++ b/src/game/server/entities/character.h
+@@ -64,6 +64,8 @@ public:
+ 	class CPlayer *GetPlayer() { return m_pPlayer; }
+ 
+ private:
++	friend class CRlEnv; // reads the state for observations
++
+ 	// player controlling this character
+ 	class CPlayer *m_pPlayer;
+ 
+diff --git a/src/game/server/gamecontext.cpp b/src/game/server/gamecontext.cpp
+index b15a264..e0ee4ae 100644
+--- a/src/game/server/gamecontext.cpp
++++ b/src/game/server/gamecontext.cpp
+@@ -21,6 +21,7 @@
+ #include "gamemodes/tdm.h"
+ #include "gamecontext.h"
+ #include "player.h"
++#include "rlenv.h"
+ 
+ enum
+ {
+@@ -37,6 +38,7 @@ void CGameContext::Construct(int Resetting)
+ 		m_apPlayers[i] = 0;
+ 
+ 	m_pController = 0;
++	m_pRlEnv = 0;
+ 	m_VoteCloseTime = 0;
+ 	m_VoteCancelTime = 0;
+ 	m_pVoteOptionFirst = 0;
+@@ -60,6 +62,7 @@ CGameContext::CGameContext()
+ 
+ CGameContext::~CGameContext()
+ {
++	delete m_pRlEnv;
+ 	for(int i = 0; i < MAX_CLIENTS; i++)
+ 		delete m_apPlayers[i];
+ 	if(!m_Resetting)
+@@ -502,6 +505,10 @@ void CGameContext::SwapTeams()
+ 
+ void CGameContext::OnTick()
+ {
++	// the rl agents' input has to be in before the world ticks
++	if(m_pRlEnv)
++		m_pRlEnv->PreTick();
++
+ 	// check tuning
+ 	CheckPureTuning();
+ 
+@@ -1628,6 +1635,17 @@ void CGameContext::OnInit()
+ 			OnClientConnected(MAX_CLIENTS -i-1, true, false);
+ 	}
+ #endif
++
++	if(Config()->m_SvRlSocket[0])
++	{
++		m_pRlEnv = new CRlEnv(this);
++		if(!m_pRlEnv->Init())
++		{
++			delete m_pRlEnv;
++			m_pRlEnv = 0;
++			Console()->ExecuteLine("shutdown");
++		}
++	}
+ }
+ 
+ void CGameContext::OnShutdown()
+diff --git a/src/game/server/gamecontext.h b/src/game/server/gamecontext.h
+index 3013dc1..3332eb0 100644
+--- a/src/game/server/gamecontext.h
++++ b/src/game/server/gamecontext.h
+@@ -90,6 +90,7 @@ public:
+ 
+ 	class IGameController *m_pController;
+ 	CGameWorld m_World;
++	class CRlEnv *m_pRlEnv;
+ 	CCommandManager m_CommandManager;
+ 
+ 	CCommandManager *CommandManager() { return &m_CommandManager; }
+diff --git a/src/game/server/rlenv.cpp b/src/game/server/rlenv.cpp
+new file mode 100644
+index 0000000..5e9e9f6
+--- /dev/null
++++ b/src/game/server/rlenv.cpp
+@@ -0,0 +1,572 @@
++#include <stdlib.h> // srand
++
++#include <base/detect.h>
++#include <base/math.h>
++#include <base/system.h>
++
++#if defined(CONF_FAMILY_UNIX)
++#include <errno.h>
++#include <poll.h>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++#endif
++
++#include <engine/shared/config.h>
++
++#include "entities/character.h"
++#include "gamecontext.h"
++#include "gamecontroller.h"
++#include "player.h"
++#include "rlenv.h"
++
++// the wire format is the in-memory layout, so make sure no padding sneaks in
++typedef char CHeaderSizeCheck[sizeof(CRlEnv::CHeader) == 16 ? 1 : -1];
++typedef char CHelloSizeCheck[sizeof(CRlEnv::CHello) == 56 ? 1 : -1];
++typedef char CResetSizeCheck[sizeof(CRlEnv::CReset) == 8 ? 1 : -1];
++typedef char CActionSizeCheck[sizeof(CRlEnv::CAction) == 24 ? 1 : -1];
++typedef char CAgentObsSizeCheck[sizeof(CRlEnv::CAgentObs) == 24+4*CRlEnv::OBS_DIM ? 1 : -1];
++typedef char CObsSizeCheck[sizeof(CRlEnv::CObs) == 20+CRlEnv::NUM_AGENTS*sizeof(CRlEnv::CAgentObs) ? 1 : -1];
++typedef char CErrorSizeCheck[sizeof(CRlEnv::CError) == 68 ? 1 : -1];
++
++#if defined(MSG_NOSIGNAL)
++static const int s_SendFlags = MSG_NOSIGNAL;
++#else
++static const int s_SendFlags = 0;
++#endif
++
++CRlEnv::CRlEnv(CGameContext *pGameServer)
++{
++	m_pGameServer = pGameServer;
++	m_Socket = -1;
++	m_State = STATE_WAIT_COMMAND;
++	m_PendingSeq = 0;
++	m_EpisodeID = 0;
++	m_EpisodeTick = 0;
++	m_StepTicksLeft = 0;
++	m_ActionTicks = 1;
++	m_EpisodeTicks = 1;
++	for(int i = 0; i < NUM_AGENTS; i++)
++	{
++		m_aClientID[i] = MAX_CLIENTS-1-i;
++		m_aFireCounter[i] = 0;
++		m_aFireHeld[i] = 0;
++	}
++	mem_zero(m_aAction, sizeof(m_aAction));
++	ClearEvents();
++}
++
++CRlEnv::~CRlEnv()
++{
++#if defined(CONF_FAMILY_UNIX)
++	if(m_Socket >= 0)
++		close(m_Socket);
++#endif
++}
++
++bool CRlEnv::Init()
++{
++	CConfig *pConfig = GameServer()->Config();
++	m_ActionTicks = pConfig->m_SvRlActionTicks;
++	m_EpisodeTicks = pConfig->m_SvRlEpisodeTicks;
++
++#if !defined(CONF_FAMILY_UNIX) || !defined(CONF_ARCH_ENDIAN_LITTLE)
++	dbg_msg("rl", "the rl bridge needs unix sockets and a little endian machine");
++	return false;
++#else
++	if(pConfig->m_SvMaxClients > MAX_CLIENTS-NUM_AGENTS)
++	{
++		// a connecting client could otherwise get an agent's slot
++		dbg_msg("rl", "sv_max_clients must be at most %d with the rl bridge", MAX_CLIENTS-NUM_AGENTS);
++		return false;
++	}
++
++	struct sockaddr_un Addr;
++	mem_zero(&Addr, sizeof(Addr));
++	Addr.sun_family = AF_UNIX;
++	if(str_length(pConfig->m_SvRlSocket) >= (int)sizeof(Addr.sun_path))
++	{
++		dbg_msg("rl", "socket path too long: '%s'", pConfig->m_SvRlSocket);
++		return false;
++	}
++	str_copy(Addr.sun_path, pConfig->m_SvRlSocket, sizeof(Addr.sun_path));
++
++	m_Socket = socket(AF_UNIX, SOCK_STREAM, 0);
++	if(m_Socket < 0)
++	{
++		dbg_msg("rl", "socket() failed: %d", errno);
++		return false;
++	}
++#if defined(SO_NOSIGPIPE)
++	int One = 1;
++	setsockopt(m_Socket, SOL_SOCKET, SO_NOSIGPIPE, &One, sizeof(One));
++#endif
++	if(connect(m_Socket, (struct sockaddr *)&Addr, sizeof(Addr)) != 0)
++	{
++		dbg_msg("rl", "could not connect to '%s': %d", pConfig->m_SvRlSocket, errno);
++		return false;
++	}
++
++	for(int i = 0; i < NUM_AGENTS; i++)
++	{
++		int ClientID = m_aClientID[i];
++		if(GameServer()->m_apPlayers[ClientID])
++		{
++			dbg_msg("rl", "player slot %d is already taken", ClientID);
++			return false;
++		}
++		GameServer()->OnClientConnected(ClientID, true, false);
++		CPlayer *pPlayer = GameServer()->m_apPlayers[ClientID];
++		if(pPlayer->GetTeam() == TEAM_SPECTATORS)
++		{
++			dbg_msg("rl", "agent %d could not join the game, check sv_player_slots", i);
++			return false;
++		}
++		GameServer()->m_pController->OnPlayerConnect(pPlayer);
++	}
++
++	CHello Hello;
++	mem_zero(&Hello, sizeof(Hello));
++	Hello.m_NumAgents = NUM_AGENTS;
++	Hello.m_ObsDim = OBS_DIM;
++	Hello.m_ActionSize = sizeof(CAction);
++	Hello.m_ActionTicks = m_ActionTicks;
++	Hello.m_TickSpeed = GameServer()->Server()->TickSpeed();
++	Hello.m_EpisodeTicks = m_EpisodeTicks;
++	str_copy(Hello.m_aMap, pConfig->m_SvMap, sizeof(Hello.m_aMap));
++	if(!SendMsg(MSG_HELLO, 0, &Hello, sizeof(Hello)))
++		return false;
++
++	dbg_msg("rl", "bridge connected to '%s', action_ticks=%d episode_ticks=%d", pConfig->m_SvRlSocket, m_ActionTicks, m_EpisodeTicks);
++	return true;
++#endif
++}
++
++void CRlEnv::PreTick()
++{
++	if(m_State == STATE_CLOSED)
++		return;
++
++	if(m_State == STATE_RESETTING)
++	{
++		// keep ticking with neutral input until both agents have spawned
++		if(!BothAlive())
++		{
++			ApplyInputs(true);
++			return;
++		}
++		m_State = STATE_RUNNING;
++		m_EpisodeTick = 0;
++		m_StepTicksLeft = 0;
++		ClearEvents();
++		SendObs(0);
++		HandleCommand();
++	}
++	else if(m_State == STATE_RUNNING && m_StepTicksLeft == 0)
++	{
++		int Truncated = m_EpisodeTick >= m_EpisodeTicks;
++		if(Truncated)
++			m_State = STATE_DONE;
++		SendObs(Truncated);
++		HandleCommand();
++	}
++	else if(m_State == STATE_WAIT_COMMAND || m_State == STATE_DONE)
++		HandleCommand();
++
++	if(m_State == STATE_RUNNING)
++	{
++		ApplyInputs(false);
++		m_StepTicksLeft--;
++		m_EpisodeTick++;
++	}
++	else if(m_State == STATE_RESETTING)
++		ApplyInputs(true);
++}
++
++void CRlEnv::HandleCommand()
++{
++	// read commands until one of them lets the world tick again
++	while(m_State != STATE_CLOSED)
++	{
++		CHeader Header;
++		if(!RecvAll(&Header, sizeof(Header)))
++			return;
++		if(Header.m_Magic != PROTOCOL_MAGIC || Header.m_Version != PROTOCOL_VERSION)
++		{
++			Fail(ERROR_PROTOCOL, "bad magic or version");
++			return;
++		}
++		if(Header.m_Seq != m_PendingSeq+1)
++		{
++			Fail(ERROR_PROTOCOL, "unexpected sequence number");
++			return;
++		}
++		m_PendingSeq = Header.m_Seq;
++
++		switch(Header.m_Type)
++		{
++		case MSG_RESET:
++			{
++				CReset Reset;
++				if(Header.m_Size != sizeof(Reset))
++				{
++					Fail(ERROR_PROTOCOL, "bad reset size");
++					return;
++				}
++				if(!RecvAll(&Reset, sizeof(Reset)))
++					return;
++				StartEpisode(Reset.m_Seed);
++				return;
++			}
++		case MSG_STEP:
++			{
++				CAction aActions[NUM_AGENTS];
++				if(Header.m_Size != sizeof(aActions))
++				{
++					Fail(ERROR_PROTOCOL, "bad step size");
++					return;
++				}
++				if(!RecvAll(aActions, sizeof(aActions)))
++					return;
++				if(m_State != STATE_RUNNING)
++				{
++					Fail(ERROR_STATE, "step without a running episode");
++					return;
++				}
++				SetActions(aActions);
++				m_StepTicksLeft = m_ActionTicks;
++				return;
++			}
++		case MSG_CLOSE:
++			if(Header.m_Size != 0)
++			{
++				Fail(ERROR_PROTOCOL, "bad close size");
++				return;
++			}
++			Close("trainer sent close");
++			return;
++		case MSG_DEBUG_KILL:
++			{
++				unsigned Agent;
++				if(Header.m_Size != sizeof(Agent))
++				{
++					Fail(ERROR_PROTOCOL, "bad debug kill size");
++					return;
++				}
++				if(!RecvAll(&Agent, sizeof(Agent)))
++					return;
++				if(!GameServer()->Config()->m_SvRlDebug)
++				{
++					Fail(ERROR_DEBUG_DISABLED, "debug kill needs sv_rl_debug 1");
++					return;
++				}
++				if(m_State != STATE_RUNNING || Agent >= NUM_AGENTS)
++				{
++					Fail(ERROR_STATE, "debug kill without a running episode or bad agent");
++					return;
++				}
++				// same as a human using the kill command, answered without ticking
++				GameServer()->m_apPlayers[m_aClientID[Agent]]->KillCharacter(WEAPON_SELF);
++				SendObs(0);
++				break;
++			}
++		default:
++			Fail(ERROR_PROTOCOL, "unknown message type");
++			return;
++		}
++	}
++}
++
++void CRlEnv::StartEpisode(unsigned Seed)
++{
++	if(!GameServer()->m_pController->IsGameRunning())
++	{
++		// the restart below only works from a running game, check sv_scorelimit and sv_timelimit
++		Fail(ERROR_STATE, "reset while the game is not running");
++		return;
++	}
++	if(Seed)
++		srand(Seed);
++
++	// same as the restart command: StartMatch, which resets world, scores and respawn
++	// timers on the next world tick, see IGameController::OnReset
++	GameServer()->m_pController->DoWarmup(0);
++
++	m_EpisodeID++;
++	m_State = STATE_RESETTING;
++	m_EpisodeTick = 0;
++	m_StepTicksLeft = 0;
++	for(int i = 0; i < NUM_AGENTS; i++)
++	{
++		m_aFireCounter[i] = 0;
++		m_aFireHeld[i] = 0;
++	}
++	mem_zero(m_aAction, sizeof(m_aAction));
++	ClearEvents();
++}
++
++int CRlEnv::AgentIndex(int ClientID) const
++{
++	for(int i = 0; i < NUM_AGENTS; i++)
++		if(m_aClientID[i] == ClientID)
++			return i;
++	return -1;
++}
++
++bool CRlEnv::BothAlive()
++{
++	for(int i = 0; i < NUM_AGENTS; i++)
++	{
++		CPlayer *pPlayer = GameServer()->m_apPlayers[m_aClientID[i]];
++		if(!pPlayer || !pPlayer->GetCharacter())
++			return false;
++	}
++	return true;
++}
++
++void CRlEnv::SetActions(const CAction *pActions)
++{
++	for(int i = 0; i < NUM_AGENTS; i++)
++	{
++		m_aAction[i] = pActions[i];
++
++		// like the client, count every press and every release
++		int Held = pActions[i].m_Fire ? 1 : 0;
++		if(Held != m_aFireHeld[i])
++		{
++			m_aFireCounter[i] = (m_aFireCounter[i]+1)&INPUT_STATE_MASK;
++			m_aFireHeld[i] = Held;
++		}
++	}
++}
++
++void CRlEnv::ApplyInputs(bool Neutral)
++{
++	for(int i = 0; i < NUM_AGENTS; i++)
++	{
++		CPlayer *pPlayer = GameServer()->m_apPlayers[m_aClientID[i]];
++		if(!pPlayer)
++			continue;
++
++		CNetObj_PlayerInput Input;
++		mem_zero(&Input, sizeof(Input));
++		Input.m_PlayerFlags = PLAYERFLAG_BOT;
++		Input.m_Fire = m_aFireCounter[i];
++		if(!Neutral)
++		{
++			Input.m_Direction = clamp(m_aAction[i].m_Direction, -1, 1);
++			Input.m_Jump = m_aAction[i].m_Jump ? 1 : 0;
++			Input.m_Hook = m_aAction[i].m_Hook ? 1 : 0;
++			Input.m_TargetX = m_aAction[i].m_TargetX;
++			Input.m_TargetY = m_aAction[i].m_TargetY;
++		}
++
++		// same order as a network client: direct input on arrival, predicted input at the tick
++		pPlayer->OnDirectInput(&Input);
++		pPlayer->OnPredictedInput(&Input);
++	}
++}
++
++void CRlEnv::OnDamage(int Victim, int From, int Amount)
++{
++	int VictimIndex = AgentIndex(Victim);
++	if(VictimIndex < 0 || Amount <= 0)
++		return;
++	m_aEvents[VictimIndex].m_DamageTaken += Amount;
++	if(From != Victim)
++	{
++		int FromIndex = AgentIndex(From);
++		if(FromIndex >= 0)
++			m_aEvents[FromIndex].m_DamageDealt += Amount;
++	}
++}
++
++void CRlEnv::OnDeath(int Victim, int Killer, int Weapon)
++{
++	// WEAPON_GAME deaths come from resets and team changes and are not scored either
++	int VictimIndex = AgentIndex(Victim);
++	if(VictimIndex < 0 || Weapon == WEAPON_GAME)
++		return;
++	if(Killer < 0 || Killer == Victim)
++	{
++		m_aEvents[VictimIndex].m_Suicides++;
++		return;
++	}
++	m_aEvents[VictimIndex].m_Deaths++;
++	int KillerIndex = AgentIndex(Killer);
++	if(KillerIndex >= 0)
++		m_aEvents[KillerIndex].m_Kills++;
++}
++
++void CRlEnv::ClearEvents()
++{
++	mem_zero(m_aEvents, sizeof(m_aEvents));
++}
++
++void CRlEnv::BuildObs(CObs *pObs)
++{
++	mem_zero(pObs, sizeof(*pObs));
++	pObs->m_EpisodeID = m_EpisodeID;
++	pObs->m_EpisodeTick = m_EpisodeTick;
++	pObs->m_ServerTick = GameServer()->Server()->Tick();
++	if(!GameServer()->m_pController->IsGameRunning())
++		pObs->m_Flags |= FLAG_GAME_NOT_RUNNING;
++
++	for(int i = 0; i < NUM_AGENTS; i++)
++	{
++		CAgentObs *pAgent = &pObs->m_aAgents[i];
++		*pAgent = m_aEvents[i];
++		CPlayer *pPlayer = GameServer()->m_apPlayers[m_aClientID[i]];
++		CPlayer *pOppPlayer = GameServer()->m_apPlayers[m_aClientID[NUM_AGENTS-1-i]];
++		pAgent->m_Score = pPlayer->m_Score;
++
++		// dead characters read as all zeros apart from the alive flag
++		CCharacter *pSelf = pPlayer->GetCharacter();
++		CCharacter *pOpp = pOppPlayer->GetCharacter();
++		float *pOut = pAgent->m_aObs;
++
++		if(pSelf)
++		{
++			pOut[0] = 1.0f;
++			pOut[1] = pSelf->m_Core.m_Pos.x;
++			pOut[2] = pSelf->m_Core.m_Pos.y;
++			pOut[3] = pSelf->m_Core.m_Vel.x;
++			pOut[4] = pSelf->m_Core.m_Vel.y;
++			pOut[5] = pSelf->m_Health;
++			pOut[6] = pSelf->m_Armor;
++			pOut[7] = pSelf->m_ActiveWeapon;
++			pOut[8] = pSelf->m_aWeapons[pSelf->m_ActiveWeapon].m_Ammo;
++			pOut[9] = pSelf->m_ReloadTimer;
++			pOut[10] = pSelf->IsGrounded() ? 1.0f : 0.0f;
++			pOut[11] = pSelf->m_Core.m_Jumped;
++			pOut[12] = pSelf->m_Core.m_HookState;
++			pOut[13] = pSelf->m_Core.m_HookPos.x - pSelf->m_Core.m_Pos.x;
++			pOut[14] = pSelf->m_Core.m_HookPos.y - pSelf->m_Core.m_Pos.y;
++		}
++		if(pOpp)
++		{
++			pOut[15] = 1.0f;
++			if(pSelf)
++			{
++				pOut[16] = pOpp->m_Core.m_Pos.x - pSelf->m_Core.m_Pos.x;
++				pOut[17] = pOpp->m_Core.m_Pos.y - pSelf->m_Core.m_Pos.y;
++			}
++			pOut[18] = pOpp->m_Core.m_Vel.x;
++			pOut[19] = pOpp->m_Core.m_Vel.y;
++			pOut[20] = pOpp->m_ActiveWeapon;
++			pOut[21] = pOpp->m_Core.m_HookState;
++		}
++		pOut[22] = m_EpisodeTick / (float)m_EpisodeTicks;
++	}
++}
++
++void CRlEnv::SendObs(int Truncated)
++{
++	CObs Obs;
++	BuildObs(&Obs);
++	Obs.m_Truncated = Truncated;
++	ClearEvents();
++	SendMsg(MSG_OBS, m_PendingSeq, &Obs, sizeof(Obs));
++}
++
++bool CRlEnv::SendMsg(int Type, unsigned Seq, const void *pData, unsigned Size)
++{
++#if defined(CONF_FAMILY_UNIX)
++	char aBuf[sizeof(CHeader)+sizeof(CObs)];
++	if(m_Socket < 0 || Size > sizeof(aBuf)-sizeof(CHeader))
++		return false;
++
++	CHeader Header;
++	Header.m_Magic = PROTOCOL_MAGIC;
++	Header.m_Version = PROTOCOL_VERSION;
++	Header.m_Type = Type;
++	Header.m_Seq = Seq;
++	Header.m_Size = Size;
++	mem_copy(aBuf, &Header, sizeof(Header));
++	mem_copy(aBuf+sizeof(Header), pData, Size);
++
++	unsigned Total = sizeof(Header)+Size;
++	unsigned Sent = 0;
++	while(Sent < Total)
++	{
++		int Ret = send(m_Socket, aBuf+Sent, Total-Sent, s_SendFlags);
++		if(Ret < 0 && errno == EINTR)
++			continue;
++		if(Ret <= 0)
++		{
++			Close("send failed, trainer gone");
++			return false;
++		}
++		Sent += Ret;
++	}
++	return true;
++#else
++	return false;
++#endif
++}
++
++bool CRlEnv::RecvAll(void *pData, unsigned Size)
++{
++#if defined(CONF_FAMILY_UNIX)
++	int Timeout = GameServer()->Config()->m_SvRlTimeout;
++	unsigned Received = 0;
++	while(Received < Size)
++	{
++		struct pollfd Poll;
++		Poll.fd = m_Socket;
++		Poll.events = POLLIN;
++		Poll.revents = 0;
++		int Ret = poll(&Poll, 1, Timeout > 0 ? Timeout : -1);
++		if(Ret < 0 && errno == EINTR)
++			continue;
++		if(Ret == 0)
++		{
++			Close("timed out waiting for the trainer");
++			return false;
++		}
++		if(Ret < 0)
++		{
++			Close("poll failed");
++			return false;
++		}
++
++		Ret = recv(m_Socket, (char *)pData+Received, Size-Received, 0);
++		if(Ret < 0 && errno == EINTR)
++			continue;
++		if(Ret <= 0)
++		{
++			Close("trainer disconnected");
++			return false;
++		}
++		Received += Ret;
++	}
++	return true;
++#else
++	return false;
++#endif
++}
++
++void CRlEnv::Fail(int Code, const char *pReason)
++{
++	CError Error;
++	mem_zero(&Error, sizeof(Error));
++	Error.m_Code = Code;
++	str_copy(Error.m_aMsg, pReason, sizeof(Error.m_aMsg));
++	SendMsg(MSG_ERROR, m_PendingSeq, &Error, sizeof(Error));
++	Close(pReason);
++}
++
++void CRlEnv::Close(const char *pReason)
++{
++	if(m_State == STATE_CLOSED)
++		return;
++	dbg_msg("rl", "bridge closed: %s", pReason);
++#if defined(CONF_FAMILY_UNIX)
++	if(m_Socket >= 0)
++		close(m_Socket);
++#endif
++	m_Socket = -1;
++	m_State = STATE_CLOSED;
++	// the server exists for the trainer only, so stop it
++	GameServer()->Console()->ExecuteLine("shutdown");
++}
+diff --git a/src/game/server/rlenv.h b/src/game/server/rlenv.h
+new file mode 100644
+index 0000000..12374e1
+--- /dev/null
++++ b/src/game/server/rlenv.h
+@@ -0,0 +1,156 @@
++#ifndef GAME_SERVER_RLENV_H
++#define GAME_SERVER_RLENV_H
++
++#include <generated/protocol.h>
++
++// Lockstep bridge to an external RL trainer over a unix socket. Only created when
++// sv_rl_socket is set. Two server side players are driven by the actions received from
++// the trainer and observations and events are sent back every sv_rl_action_ticks ticks.
++// The wire format is documented in teeworlds-rl/twrl/protocol.py and must match it.
++class CRlEnv
++{
++public:
++	enum
++	{
++		NUM_AGENTS=2,
++		OBS_DIM=23,
++
++		PROTOCOL_MAGIC=0x4C525754, // "TWRL"
++		PROTOCOL_VERSION=1,
++
++		MSG_HELLO=1,
++		MSG_RESET,
++		MSG_STEP,
++		MSG_CLOSE,
++		MSG_OBS,
++		MSG_ERROR,
++		MSG_DEBUG_KILL,
++
++		ERROR_PROTOCOL=1,
++		ERROR_STATE,
++		ERROR_DEBUG_DISABLED,
++
++		FLAG_GAME_NOT_RUNNING=1,
++	};
++
++	struct CHeader
++	{
++		unsigned m_Magic;
++		unsigned short m_Version;
++		unsigned short m_Type;
++		unsigned m_Seq;
++		unsigned m_Size;
++	};
++
++	struct CHello
++	{
++		unsigned m_NumAgents;
++		unsigned m_ObsDim;
++		unsigned m_ActionSize;
++		unsigned m_ActionTicks;
++		unsigned m_TickSpeed;
++		unsigned m_EpisodeTicks;
++		char m_aMap[32];
++	};
++
++	struct CReset
++	{
++		unsigned m_Seed;
++		unsigned m_Reserved;
++	};
++
++	struct CAction
++	{
++		int m_Direction;
++		int m_Jump;
++		int m_Fire;
++		int m_Hook;
++		int m_TargetX;
++		int m_TargetY;
++	};
++
++	struct CAgentObs
++	{
++		int m_Kills;
++		int m_Deaths;
++		int m_Suicides;
++		int m_DamageDealt;
++		int m_DamageTaken;
++		int m_Score;
++		float m_aObs[OBS_DIM];
++	};
++
++	struct CObs
++	{
++		unsigned m_EpisodeID;
++		unsigned m_EpisodeTick;
++		unsigned m_ServerTick;
++		unsigned char m_Terminated;
++		unsigned char m_Truncated;
++		unsigned short m_Flags;
++		unsigned m_Reserved;
++		CAgentObs m_aAgents[NUM_AGENTS];
++	};
++
++	struct CError
++	{
++		unsigned m_Code;
++		char m_aMsg[64];
++	};
++
++	CRlEnv(class CGameContext *pGameServer);
++	~CRlEnv();
++
++	// connects, sends HELLO and adds the agents, false if the bridge could not be set up
++	bool Init();
++	// call at the start of every tick, before the world ticks; may block for the trainer
++	void PreTick();
++
++	void OnDamage(int Victim, int From, int Amount);
++	void OnDeath(int Victim, int Killer, int Weapon);
++
++private:
++	enum
++	{
++		STATE_WAIT_COMMAND=0,
++		STATE_RESETTING,
++		STATE_RUNNING,
++		STATE_DONE,
++		STATE_CLOSED,
++	};
++
++	class CGameContext *m_pGameServer;
++	class CGameContext *GameServer() const { return m_pGameServer; }
++
++	int m_Socket;
++	int m_State;
++	unsigned m_PendingSeq;
++	unsigned m_EpisodeID;
++	int m_EpisodeTick;
++	int m_StepTicksLeft;
++	int m_ActionTicks;
++	int m_EpisodeTicks;
++
++	int m_aClientID[NUM_AGENTS];
++	CAction m_aAction[NUM_AGENTS];
++	int m_aFireCounter[NUM_AGENTS];
++	int m_aFireHeld[NUM_AGENTS];
++	CAgentObs m_aEvents[NUM_AGENTS];
++
++	int AgentIndex(int ClientID) const;
++	bool BothAlive();
++	void ApplyInputs(bool Neutral);
++	void SetActions(const CAction *pActions);
++	void ClearEvents();
++	void BuildObs(CObs *pObs);
++	void SendObs(int Truncated);
++	void HandleCommand();
++	void StartEpisode(unsigned Seed);
++
++	bool SendMsg(int Type, unsigned Seq, const void *pData, unsigned Size);
++	bool RecvAll(void *pData, unsigned Size);
++	void Fail(int Code, const char *pReason);
++	void Close(const char *pReason);
++};
++
++#endif
+diff --git a/src/game/variables.h b/src/game/variables.h
+index 8530569..e656bf0 100644
+--- a/src/game/variables.h
++++ b/src/game/variables.h
+@@ -136,6 +136,13 @@ MACRO_CONFIG_INT(SvVoteKick, sv_vote_kick, 1, 0, 1, CFGFLAG_SAVE|CFGFLAG_SERVER,
+ MACRO_CONFIG_INT(SvVoteKickMin, sv_vote_kick_min, 0, 0, MAX_CLIENTS, CFGFLAG_SAVE|CFGFLAG_SERVER, "Minimum number of players required to start a kick vote")
+ MACRO_CONFIG_INT(SvVoteKickBantime, sv_vote_kick_bantime, 5, 0, 1440, CFGFLAG_SAVE|CFGFLAG_SERVER, "The time to ban a player if kicked by vote. 0 makes it just use kick")
+ 
++// rl environment bridge, see game/server/rlenv.h
++MACRO_CONFIG_STR(SvRlSocket, sv_rl_socket, 128, "", CFGFLAG_SERVER, "Unix socket of an RL trainer to connect to at startup (empty = off)")
++MACRO_CONFIG_INT(SvRlActionTicks, sv_rl_action_ticks, 2, 1, 50, CFGFLAG_SERVER, "Number of ticks each RL action is held for")
++MACRO_CONFIG_INT(SvRlEpisodeTicks, sv_rl_episode_ticks, 3000, 1, 2147483647, CFGFLAG_SERVER, "Length of an RL episode in ticks")
++MACRO_CONFIG_INT(SvRlTimeout, sv_rl_timeout, 30000, 0, 2147483647, CFGFLAG_SERVER, "Milliseconds to wait for the RL trainer before shutting down (0 = forever)")
++MACRO_CONFIG_INT(SvRlDebug, sv_rl_debug, 0, 0, 1, CFGFLAG_SERVER, "Allow RL test only commands")
++
+ // debug
+ #ifdef CONF_DEBUG // this one can crash the server if not used correctly
+ 	MACRO_CONFIG_INT(DbgDummies, dbg_dummies, 0, 0, MAX_CLIENTS, CFGFLAG_SERVER, "")
+-- 
+2.47.3
+

@@ -1,0 +1,505 @@
+{
+ "config": {
+  "server_dir": "../teeworlds-0.7.5/build-release",
+  "envs": 8,
+  "episodes": 150,
+  "map": "lms1",
+  "mode": 2,
+  "policy": "chase",
+  "action_ticks": 2,
+  "episode_ticks": 3000,
+  "seed": 1,
+  "rss_every": 25,
+  "out": "bench/results/2026-10-19-phase1-long-chase-lms1.json"
+ },
+ "load1": 8.39013671875,
+ "wall_s": 13.287,
+ "episodes": 1200,
+ "steps": 1800000,
+ "ticks": 3600000,
+ "total_ticks_per_s": 275209,
+ "total_steps_per_s": 137604,
+ "median_step_latency_us_p50": 51.349999999999994,
+ "median_step_latency_us_p99": 79.9,
+ "median_server_us_per_tick": 10.244,
+ "totals": {
+  "kills": 1908,
+  "deaths": 1908,
+  "suicides": 0,
+  "damage_dealt": 23610,
+  "damage_taken": 23610
+ },
+ "violations": {
+  "score": 0,
+  "damage_pair": 0,
+  "kill_pair": 0,
+  "not_running": 0,
+  "reset_state": 0
+ },
+ "per_env": [
+  {
+   "env": 0,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 13.215,
+   "steps_per_s": 17026,
+   "ticks_per_s": 34053,
+   "step_latency_us_p50": 51.8,
+   "step_latency_us_p99": 79.1,
+   "server_cpu_s": 4.66,
+   "server_us_per_tick": 10.356,
+   "server_rss_kb": [
+    [
+     0,
+     15188
+    ],
+    [
+     25,
+     15188
+    ],
+    [
+     50,
+     15188
+    ],
+    [
+     75,
+     15188
+    ],
+    [
+     100,
+     15188
+    ],
+    [
+     125,
+     15188
+    ],
+    [
+     149,
+     15188
+    ]
+   ],
+   "totals": {
+    "kills": 265,
+    "deaths": 265,
+    "suicides": 0,
+    "damage_dealt": 3214,
+    "damage_taken": 3214
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 14200
+  },
+  {
+   "env": 1,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 12.96,
+   "steps_per_s": 17362,
+   "ticks_per_s": 34723,
+   "step_latency_us_p50": 51.1,
+   "step_latency_us_p99": 79.1,
+   "server_cpu_s": 4.56,
+   "server_us_per_tick": 10.133,
+   "server_rss_kb": [
+    [
+     0,
+     15344
+    ],
+    [
+     25,
+     15344
+    ],
+    [
+     50,
+     15344
+    ],
+    [
+     75,
+     15344
+    ],
+    [
+     100,
+     15344
+    ],
+    [
+     125,
+     15344
+    ],
+    [
+     149,
+     15344
+    ]
+   ],
+   "totals": {
+    "kills": 242,
+    "deaths": 242,
+    "suicides": 0,
+    "damage_dealt": 3034,
+    "damage_taken": 3034
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 14252
+  },
+  {
+   "env": 2,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 13.168,
+   "steps_per_s": 17087,
+   "ticks_per_s": 34174,
+   "step_latency_us_p50": 51.8,
+   "step_latency_us_p99": 77.6,
+   "server_cpu_s": 4.63,
+   "server_us_per_tick": 10.289,
+   "server_rss_kb": [
+    [
+     0,
+     15296
+    ],
+    [
+     25,
+     15296
+    ],
+    [
+     50,
+     15296
+    ],
+    [
+     75,
+     15296
+    ],
+    [
+     100,
+     15296
+    ],
+    [
+     125,
+     15296
+    ],
+    [
+     149,
+     15296
+    ]
+   ],
+   "totals": {
+    "kills": 244,
+    "deaths": 244,
+    "suicides": 0,
+    "damage_dealt": 3041,
+    "damage_taken": 3041
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 13996
+  },
+  {
+   "env": 3,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 13.072,
+   "steps_per_s": 17213,
+   "ticks_per_s": 34426,
+   "step_latency_us_p50": 51.4,
+   "step_latency_us_p99": 80.2,
+   "server_cpu_s": 4.61,
+   "server_us_per_tick": 10.244,
+   "server_rss_kb": [
+    [
+     0,
+     15116
+    ],
+    [
+     25,
+     15116
+    ],
+    [
+     50,
+     15116
+    ],
+    [
+     75,
+     15116
+    ],
+    [
+     100,
+     15116
+    ],
+    [
+     125,
+     15116
+    ],
+    [
+     149,
+     15116
+    ]
+   ],
+   "totals": {
+    "kills": 270,
+    "deaths": 270,
+    "suicides": 0,
+    "damage_dealt": 3267,
+    "damage_taken": 3267
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 14256
+  },
+  {
+   "env": 4,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 12.92,
+   "steps_per_s": 17415,
+   "ticks_per_s": 34831,
+   "step_latency_us_p50": 50.6,
+   "step_latency_us_p99": 81.7,
+   "server_cpu_s": 4.57,
+   "server_us_per_tick": 10.156,
+   "server_rss_kb": [
+    [
+     0,
+     16364
+    ],
+    [
+     25,
+     16372
+    ],
+    [
+     50,
+     16372
+    ],
+    [
+     75,
+     16372
+    ],
+    [
+     100,
+     16372
+    ],
+    [
+     125,
+     16372
+    ],
+    [
+     149,
+     16372
+    ]
+   ],
+   "totals": {
+    "kills": 222,
+    "deaths": 222,
+    "suicides": 0,
+    "damage_dealt": 2748,
+    "damage_taken": 2748
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 14076
+  },
+  {
+   "env": 5,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 13.052,
+   "steps_per_s": 17239,
+   "ticks_per_s": 34478,
+   "step_latency_us_p50": 51.1,
+   "step_latency_us_p99": 79.6,
+   "server_cpu_s": 4.61,
+   "server_us_per_tick": 10.244,
+   "server_rss_kb": [
+    [
+     0,
+     15284
+    ],
+    [
+     25,
+     15284
+    ],
+    [
+     50,
+     15284
+    ],
+    [
+     75,
+     15284
+    ],
+    [
+     100,
+     15284
+    ],
+    [
+     125,
+     15284
+    ],
+    [
+     149,
+     15284
+    ]
+   ],
+   "totals": {
+    "kills": 230,
+    "deaths": 230,
+    "suicides": 0,
+    "damage_dealt": 2820,
+    "damage_taken": 2820
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 14076
+  },
+  {
+   "env": 6,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 13.116,
+   "steps_per_s": 17155,
+   "ticks_per_s": 34310,
+   "step_latency_us_p50": 51.3,
+   "step_latency_us_p99": 81.3,
+   "server_cpu_s": 4.61,
+   "server_us_per_tick": 10.244,
+   "server_rss_kb": [
+    [
+     0,
+     15292
+    ],
+    [
+     25,
+     15292
+    ],
+    [
+     50,
+     15292
+    ],
+    [
+     75,
+     15292
+    ],
+    [
+     100,
+     15292
+    ],
+    [
+     125,
+     15292
+    ],
+    [
+     149,
+     15292
+    ]
+   ],
+   "totals": {
+    "kills": 221,
+    "deaths": 221,
+    "suicides": 0,
+    "damage_dealt": 2723,
+    "damage_taken": 2723
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 14080
+  },
+  {
+   "env": 7,
+   "episodes": 150,
+   "steps": 225000,
+   "ticks": 450000,
+   "wall_s": 13.152,
+   "steps_per_s": 17107,
+   "ticks_per_s": 34214,
+   "step_latency_us_p50": 51.4,
+   "step_latency_us_p99": 82.5,
+   "server_cpu_s": 4.6,
+   "server_us_per_tick": 10.222,
+   "server_rss_kb": [
+    [
+     0,
+     15300
+    ],
+    [
+     25,
+     15300
+    ],
+    [
+     50,
+     15300
+    ],
+    [
+     75,
+     15300
+    ],
+    [
+     100,
+     15300
+    ],
+    [
+     125,
+     15300
+    ],
+    [
+     149,
+     15300
+    ]
+   ],
+   "totals": {
+    "kills": 214,
+    "deaths": 214,
+    "suicides": 0,
+    "damage_dealt": 2763,
+    "damage_taken": 2763
+   },
+   "violations": {
+    "score": 0,
+    "damage_pair": 0,
+    "kill_pair": 0,
+    "not_running": 0,
+    "reset_state": 0
+   },
+   "python_maxrss_kb": 14080
+  }
+ ]
+}
