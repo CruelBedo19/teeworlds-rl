@@ -4,6 +4,12 @@
 Live, at the normal 50 ticks/s, reachable only through the relay socket (see udp_tcp_relay.py):
     watch_match.py live --server-dir ../teeworlds-0.7.5/build-release
 
+Live with the learned policy of a training run, in its own realtime server next to the training
+(the training itself keeps running at full speed). Both agents play the newest checkpoint of the
+run, which is reloaded when a newer one appears (checked every --refresh-seconds):
+    watch_match.py live --server-dir ../teeworlds-0.7.5/build-release --policy ppo --run-dir runs/x \
+        --relay-socket ~/.twrl-watch/ppo.sock
+
 Demo, recorded at full speed into ~/.local/share/teeworlds/demos/<name>.demo:
     watch_match.py record --server-dir ../teeworlds-0.7.5/build-release --name twrl-random --episodes 5
 
@@ -11,6 +17,7 @@ The agents take both player slots (sv_player_slots 2), so anyone who connects is
 """
 
 import argparse
+import glob
 import os
 import random
 import subprocess
@@ -23,6 +30,7 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
 
 from twrl import TeeworldsEnv, random_action  # noqa: E402
+from twrl import protocol as P  # noqa: E402
 from twrl.protocol import EVENT_NAMES  # noqa: E402
 from twrl.testing import chase_actions  # noqa: E402
 import udp_tcp_relay  # noqa: E402
@@ -30,15 +38,65 @@ import udp_tcp_relay  # noqa: E402
 DEMO_DIR = os.path.expanduser("~/.local/share/teeworlds/demos")
 
 
+class CheckpointFollower:
+    """Both agents sample from the newest checkpoint of a run directory, reloaded when it changes.
+
+    Checkpoints are written atomically (temp file + rename), so a listed ckpt_*.pt is always complete."""
+
+    def __init__(self, run_dir, refresh_seconds, seed):
+        import torch  # only this mode needs torch
+        from twrl.ppo import load_policy, to_env_actions
+        self.torch, self.load_policy, self.to_env_actions = torch, load_policy, to_env_actions
+        torch.set_num_threads(1)  # 25 decisions/s; leave the cores to the training
+        self.run_dir = run_dir
+        self.refresh_seconds = refresh_seconds
+        self.gen = torch.Generator().manual_seed(seed)
+        self.policy = self.current = None
+        self.checked = 0.0
+        self.refresh(force=True)
+
+    def newest(self):
+        paths = glob.glob(os.path.join(self.run_dir, "ckpt_*.pt"))
+        return max(paths, key=os.path.getmtime) if paths else None
+
+    def refresh(self, force=False):
+        if not force and time.time() - self.checked < self.refresh_seconds:
+            return
+        self.checked = time.time()
+        path = self.newest()
+        if path is None:
+            if self.policy is None:
+                sys.exit("no ckpt_*.pt in %s yet" % self.run_dir)
+            return
+        key = (path, os.path.getmtime(path))
+        if key == self.current:
+            return
+        policy, state = self.load_policy(path)
+        self.policy, self.current = policy, key
+        print("policy: %s (update %d, %d agent steps)" % (os.path.basename(path), state["update"], state["agent_steps"]),
+              flush=True)
+
+    def __call__(self, agents):
+        self.refresh()
+        vec = self.torch.from_numpy(agents["vec"].copy())
+        codes = self.torch.from_numpy(agents["grid"][:, :P.GRID_CELLS].reshape(P.NUM_AGENTS, P.GRID_HEIGHT, P.GRID_WIDTH).copy())
+        with self.torch.no_grad():
+            heads = self.policy.act(vec, codes, self.gen)[0]
+        return self.to_env_actions(heads.numpy())
+
+
 def play(env, args, episodes):
     rng = random.Random(args.seed)
+    ppo = CheckpointFollower(args.run_dir, args.refresh_seconds, args.seed) if args.policy == "ppo" else None
     episode = 0
     while episodes == 0 or episode < episodes:
         obs, info = env.reset(seed=args.seed + episode)
         step = 0
         while True:
-            # both are diagnostics, not the learned AI
-            if args.policy == "chase":
+            if ppo is not None:
+                actions = ppo(info["agents"])
+            # chase and random are diagnostics, not the learned AI
+            elif args.policy == "chase":
                 actions = chase_actions(info["agents"], rng, step)
             else:
                 actions = [random_action(rng), random_action(rng)]
@@ -98,7 +156,9 @@ def main():
         p = sub.add_parser(name)
         p.add_argument("--server-dir", required=True)
         p.add_argument("--map", default="lms1")
-        p.add_argument("--policy", choices=("random", "chase"), default="random")
+        p.add_argument("--policy", choices=("random", "chase", "ppo"), default="random")
+        p.add_argument("--run-dir", help="--policy ppo: the training run whose newest checkpoint plays")
+        p.add_argument("--refresh-seconds", type=float, default=60.0, help="--policy ppo: how often to look for a newer checkpoint")
         p.add_argument("--seed", type=int, default=1)
         p.add_argument("--episode-ticks", type=int, default=3000)
     sub.choices["live"].add_argument("--episodes", type=int, default=0, help="0 = until Ctrl+C")
@@ -106,6 +166,8 @@ def main():
     sub.choices["record"].add_argument("--episodes", type=int, default=5)
     sub.choices["record"].add_argument("--name", default="twrl-random")
     args = ap.parse_args()
+    if getattr(args, "policy", None) == "ppo" and not args.run_dir:
+        ap.error("--policy ppo needs --run-dir")
     if args.cmd == "live":
         run_live(args)
     elif args.cmd == "record":

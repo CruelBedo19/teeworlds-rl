@@ -24,6 +24,21 @@ Bir relay socket'ini aynı anda tek maç kullanabilir. İkinci bir `live` socket
 
 Ctrl+C maçı ve relay'i kapatır.
 
+## Canlı, eğitimdeki PPO policy'si (box)
+
+Eğitim tam hızda kendi server'larında sürer. İzleme ayrı bir gerçek zamanlı (50 tick/s) server açar ve eğitimi yavaşlatmaz: tek torch thread'i, saniyede 25 karar.
+
+```bash
+.venv/bin/python scripts/watch_match.py live --server-dir ../teeworlds-0.7.5/build-release \
+    --policy ppo --run-dir runs/<koşu> --relay-socket ~/.twrl-watch/ppo.sock
+```
+
+- İki agent da koşunun en yeni `ckpt_*.pt` dosyasını oynar.
+- Script her `--refresh-seconds` (varsayılan 60) saniyede yeni checkpoint arar. Yenisi varsa episode'u kesmeden yükler ve terminale `policy: ckpt_0350.pt (update 350, 716800 agent steps)` yazar.
+- Checkpoint'ler atomik yazıldığı için yarım dosya okunmaz.
+- Policy aksiyonları eğitimdeki gibi örnekler (stokastik).
+- Mac tarafında yalnız socket yolu değişir: `~/.twrl-watch/ppo.sock`.
+
 ## Canlı (Mac)
 
 ```bash
