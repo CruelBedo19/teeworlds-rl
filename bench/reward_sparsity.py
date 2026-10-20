@@ -36,7 +36,8 @@ class UniformPolicy(torch.nn.Module):
 
     def act(self, vec, codes, generator=None):
         heads = torch.stack([torch.randint(0, n, (vec.shape[0],), generator=generator) for n in HEADS], dim=-1)
-        return heads.float(), torch.zeros(vec.shape[0]), torch.zeros(vec.shape[0]), torch.zeros(vec.shape[0])
+        zeros = torch.zeros(vec.shape[0])
+        return heads.float(), zeros, zeros, zeros, zeros
 
     def env_actions(self, actions):
         return to_env_actions(np.asarray(actions).astype(np.int64))

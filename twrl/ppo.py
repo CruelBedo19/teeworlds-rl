@@ -116,12 +116,14 @@ class Policy(nn.Module):
         return chunks[:len(DISCRETE)], chunks[-1]
 
     def act(self, vec, codes, generator=None):
-        """Sample actions; returns actions (B, action_dim) float, log prob (B,), value (B,), entropy (B,)."""
+        """Sample actions; returns actions (B, action_dim) float, log prob (B,), value (B,), entropy (B,) and
+        the Gaussian aim's part of the log prob (B,; zeros for the categorical aim, whose part is in logp)."""
         out, value = self(vec, codes)
         logits, aim = self._split(out)
         if not self.gaussian:
             logits = logits + (aim,)
         actions, logp, ent = [], 0, 0
+        aim_logp = torch.zeros_like(value)
         for chunk in logits:
             probs = torch.softmax(chunk, dim=-1)
             a = torch.multinomial(probs, 1, generator=generator).squeeze(-1)
@@ -134,15 +136,16 @@ class Policy(nn.Module):
             a = aim + std * torch.randn(aim.shape, generator=generator)
             d = torch.distributions.Normal(aim, std)
             actions.append(a)
-            logp = logp + d.log_prob(a).sum(-1)
+            aim_logp = d.log_prob(a).sum(-1)
+            logp = logp + aim_logp
             ent = ent + d.entropy().sum(-1)
-        return torch.cat(actions, dim=-1), logp, value, ent
+        return torch.cat(actions, dim=-1), logp, value, ent, aim_logp
 
     def evaluate(self, vec, codes, actions, forward=None):
-        """Log prob, entropy, value and Gaussian aim entropy of `actions`; `forward` may be a compiled version
-        of self.forward. The entropy covers the categorical heads (the categorical aim included); the
-        Gaussian aim's entropy is returned on its own (zeros for the categorical aim), so the trainer
-        can leave it out of the entropy bonus."""
+        """Log prob, entropy, value, Gaussian aim entropy and Gaussian aim log prob of `actions`; `forward`
+        may be a compiled version of self.forward. logp and the entropy cover the categorical heads (the
+        categorical aim included); logp also includes the Gaussian aim, whose log prob and entropy are
+        returned on their own as well (zeros for the categorical aim)."""
         out, value = (forward or self)(vec, codes)
         logits, aim = self._split(out)
         n = len(DISCRETE)
@@ -153,12 +156,13 @@ class Policy(nn.Module):
             d = torch.distributions.Categorical(logits=chunk)
             logp = logp + d.log_prob(a)
             ent = ent + d.entropy()
-        aim_ent = torch.zeros_like(value)
+        aim_ent = aim_logp = torch.zeros_like(value)
         if self.gaussian:
             d = torch.distributions.Normal(aim, self._std().expand_as(aim))
-            logp = logp + d.log_prob(actions[:, n:]).sum(-1)
+            aim_logp = d.log_prob(actions[:, n:]).sum(-1)
+            logp = logp + aim_logp
             aim_ent = d.entropy().sum(-1)
-        return logp, ent, value, aim_ent
+        return logp, ent, value, aim_ent, aim_logp
 
     def env_actions(self, actions):
         """(..., action_dim) actions as numpy -> (..., 6) int32 env actions."""
@@ -182,6 +186,10 @@ class PPOConfig:
         self.vf_coef = 0.5
         self.max_grad_norm = 0.5
         self.adv_norm = "batch"  # normalise advantages once over the whole batch ("minibatch": per minibatch)
+        # Gaussian aim: "shots" trains the aim only on decisions where a shot actually left the gun (the aim
+        # has no effect on the others), with its own clipped ratio; the other heads have their own ratio
+        # and see every decision. "all": one joint ratio over all heads on every decision.
+        self.aim_mask = "shots"
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise TypeError(f"unknown PPO setting {k}")
@@ -229,8 +237,8 @@ class Trainer:
         self.agent_steps = 0
         self.obs = venv.reset()
         self.prev_agents = None
-        self.episode_events = np.zeros((n, 2, 6), dtype=np.int64)
-        self.finished = []  # per finished episode: (2, 6) event totals, learner first when there is an opponent
+        self.episode_events = np.zeros((n, 2, len(P.EVENT_NAMES)), dtype=np.int64)
+        self.finished = []  # per finished episode: (2, EVENT_NAMES) totals, learner first when there is an opponent
         self.behaviour = np.zeros(len(BEHAVIOUR))
 
     def _learner_first(self, events, i):
@@ -247,7 +255,7 @@ class Trainer:
         self.behaviour[0] += alive.sum()
         self.behaviour[1] += vis.sum()
         self.behaviour[2] += cos[vis].sum()
-        events = infos["events"].reshape(-1, 6)[self.rows]
+        events = infos["events"].reshape(-1, len(P.EVENT_NAMES))[self.rows]
         self.behaviour[4] += events[:, P.EVENT_NAMES.index("damage_dealt")].sum()
         self.behaviour[5] += events[:, P.EVENT_NAMES.index("kills")].sum()
         agents = infos.get("agents")
@@ -268,6 +276,8 @@ class Trainer:
         codes = torch.zeros(T, b, P.GRID_HEIGHT, P.GRID_WIDTH, dtype=torch.uint8)
         actions = torch.zeros(T, b, self.policy.action_dim)
         logp = torch.zeros(T, b)
+        aim_logp = torch.zeros(T, b)
+        aim_mask = torch.zeros(T, b)
         values = torch.zeros(T, b)
         rewards = torch.zeros(T, b)
         dones = torch.zeros(T, b)
@@ -277,17 +287,20 @@ class Trainer:
             v_all, c_all = flatten_agents(self.obs)
             v, c = v_all[rows], c_all[rows]
             with torch.no_grad():
-                a, lp, val, e = self.policy.act(v, c, self.gen)
+                a, lp, val, e, alp = self.policy.act(v, c, self.gen)
                 env_actions[self.rows] = self.policy.env_actions(a.numpy())
                 if self.opponent is not None:
                     opp = torch.from_numpy(self.opp_rows)
                     oa = self.opponent.act(v_all[opp], c_all[opp], self.opp_gen)[0]
                     env_actions[self.opp_rows] = self.opponent.env_actions(oa.numpy())
-            vec[t], codes[t], actions[t], logp[t], values[t], ent[t] = v, c, a, lp, val, e
+            vec[t], codes[t], actions[t], logp[t], values[t], ent[t], aim_logp[t] = v, c, a, lp, val, e, alp
             self.obs, r, term, trunc, infos = self.venv.step(env_actions.reshape(n, 2, 6))
             ended = term | trunc
             self._track(v_all.numpy(), env_actions, infos, ended)
             r = torch.from_numpy(r.reshape(-1)[self.rows].copy())
+            # the shots of the ticks this decision covered: where the aim actually mattered
+            shots = infos["events"][..., P.EVENT_NAMES.index("shots")].reshape(-1)[self.rows]
+            aim_mask[t] = torch.from_numpy((shots > 0).astype(np.float32))
             done = np.repeat(ended, 2)[self.rows]
             self.episode_events += infos["events"]
             if "final_index" in infos:
@@ -304,7 +317,8 @@ class Trainer:
                 r[torch.from_numpy(batch_rows)] += cfg.gamma * fval * trunc_rows.float()
                 for i in idx:
                     totals = self.episode_events[i].copy()
-                    totals[:, 5] = infos["events"][i, :, 5]  # the score is a running total, not a count
+                    score = P.EVENT_NAMES.index("score")
+                    totals[:, score] = infos["events"][i, :, score]  # the score is a running total, not a count
                     self.finished.append(self._learner_first(totals, i))
                     self.episode_events[i] = 0
             rewards[t] = r
@@ -323,12 +337,43 @@ class Trainer:
         self.agent_steps += T * b
         return {"vec": vec.reshape(T * b, -1), "codes": codes.reshape(T * b, P.GRID_HEIGHT, P.GRID_WIDTH),
                 "actions": actions.reshape(T * b, -1), "logp": logp.reshape(-1), "values": values.reshape(-1),
+                "aim_logp": aim_logp.reshape(-1), "aim_mask": aim_mask.reshape(-1),
                 "adv": adv.reshape(-1), "returns": (adv + values).reshape(-1), "rewards": rewards, "entropy": ent.mean().item()}
+
+    def masked_aim(self):
+        return self.policy.gaussian and self.cfg.aim_mask == "shots"
+
+    def losses(self, batch, mb, adv):
+        """PPO loss terms for minibatch `mb` with advantages `adv`; also used by tests and audits."""
+        cfg = self.cfg
+        logp, ent, value, aim_ent, aim_logp = self.policy.evaluate(batch["vec"][mb], batch["codes"][mb], batch["actions"][mb], self._forward)
+        old = batch["logp"][mb]
+        out = {}
+        if self.masked_aim():
+            # the other heads: their own ratio on every decision; the aim: its own ratio, only where a shot left
+            old_aim, mask = batch["aim_logp"][mb], batch["aim_mask"][mb]
+            ratio = torch.exp((logp - aim_logp) - (old - old_aim))
+            aim_ratio = torch.exp(aim_logp - old_aim)
+            aim_pg = -(mask * torch.min(aim_ratio * adv, torch.clamp(aim_ratio, 1 - cfg.clip, 1 + cfg.clip) * adv)).sum() / len(mb)
+            aim_ent_term = (mask * aim_ent).sum() / len(mb)
+            out.update(aim_ratio=aim_ratio, aim_mask=mask, aim_logp=aim_logp, old_aim=old_aim)
+        else:
+            ratio = torch.exp(logp - old)
+            aim_pg = torch.zeros(())
+            aim_ent_term = aim_ent.mean()
+        pg = -torch.min(ratio * adv, torch.clamp(ratio, 1 - cfg.clip, 1 + cfg.clip) * adv).mean()
+        vl = 0.5 * ((value - batch["returns"][mb]) ** 2).mean()
+        el = ent.mean()
+        loss = pg + aim_pg + cfg.vf_coef * vl - cfg.ent_coef * el - cfg.aim_ent_coef * aim_ent_term
+        out.update(loss=loss, pg=pg, aim_pg=aim_pg, vl=vl, ent=el, aim_ent=aim_ent.mean(), ratio=ratio,
+                   log_ratio=torch.log(ratio))
+        return out
 
     def train(self, batch):
         cfg = self.cfg
         total = batch["adv"].shape[0]
-        stats = {k: [] for k in ("policy_loss", "value_loss", "entropy", "aim_entropy", "approx_kl", "clip_frac", "grad_norm")}
+        keys = ("policy_loss", "aim_policy_loss", "value_loss", "entropy", "aim_entropy", "approx_kl", "clip_frac", "grad_norm")
+        stats = {k: [] for k in keys + (("aim_approx_kl", "aim_clip_frac", "aim_mask_frac") if self.masked_aim() else ())}
         all_adv = batch["adv"]
         if cfg.adv_norm == "batch":
             all_adv = (all_adv - all_adv.mean()) / (all_adv.std() + 1e-8)
@@ -336,15 +381,11 @@ class Trainer:
             perm = torch.randperm(total, generator=self.gen)
             for start in range(0, total, cfg.minibatch):
                 mb = perm[start:start + cfg.minibatch]
-                logp, ent, value, aim_ent = self.policy.evaluate(batch["vec"][mb], batch["codes"][mb], batch["actions"][mb], self._forward)
                 adv = all_adv[mb]
                 if cfg.adv_norm == "minibatch":
                     adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-                ratio = torch.exp(logp - batch["logp"][mb])
-                pg = -torch.min(ratio * adv, torch.clamp(ratio, 1 - cfg.clip, 1 + cfg.clip) * adv).mean()
-                vl = 0.5 * ((value - batch["returns"][mb]) ** 2).mean()
-                el, ael = ent.mean(), aim_ent.mean()
-                loss = pg + cfg.vf_coef * vl - cfg.ent_coef * el - cfg.aim_ent_coef * ael
+                L = self.losses(batch, mb, adv)
+                loss = L["loss"]
                 self.opt.zero_grad()
                 loss.backward()
                 gn = nn.utils.clip_grad_norm_(self.policy.parameters(), cfg.max_grad_norm)
@@ -352,13 +393,21 @@ class Trainer:
                     raise FloatingPointError(f"non-finite loss {loss.item()} or grad norm {gn.item()} at update {self.update}")
                 self.opt.step()
                 with torch.no_grad():
-                    log_ratio = logp - batch["logp"][mb]
+                    ratio, log_ratio = L["ratio"], L["log_ratio"]
                     stats["approx_kl"].append(((ratio - 1) - log_ratio).mean().item())
                     stats["clip_frac"].append(((ratio - 1).abs() > cfg.clip).float().mean().item())
-                stats["policy_loss"].append(pg.item())
-                stats["value_loss"].append(vl.item())
-                stats["entropy"].append(el.item())
-                stats["aim_entropy"].append(ael.item())
+                    if self.masked_aim():
+                        m = L["aim_mask"]
+                        n = m.sum().clamp(min=1)
+                        ar = L["aim_ratio"]
+                        stats["aim_approx_kl"].append((m * ((ar - 1) - torch.log(ar))).sum().item() / n.item())
+                        stats["aim_clip_frac"].append((m * ((ar - 1).abs() > cfg.clip).float()).sum().item() / n.item())
+                        stats["aim_mask_frac"].append(m.mean().item())
+                stats["policy_loss"].append(L["pg"].item())
+                stats["aim_policy_loss"].append(float(L["aim_pg"].detach()))
+                stats["value_loss"].append(L["vl"].item())
+                stats["entropy"].append(L["ent"].item())
+                stats["aim_entropy"].append(L["aim_ent"].item())
                 stats["grad_norm"].append(gn.item())
         self.update += 1
         out = {k: float(np.mean(v)) for k, v in stats.items()}

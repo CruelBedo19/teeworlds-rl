@@ -186,22 +186,33 @@ def shots_and_presses(rec):
     reset_before = np.zeros((S, N), bool)  # the decision at s is the first of an episode
     for s in range(1, S):
         reset_before[s] = rec.steps[s - 1]["term"] | rec.steps[s - 1]["trunc"]
-    # the server keeps the fire state across a reset only within a process; treat episode starts as unknown
-    press = (fire == 1) & (prev_fire == 0)
+    # protocol v3: fire=1 is a new press at every decision (v2: only after a decision with fire=0)
+    press = (fire == 1) if P.VERSION >= 3 else (fire == 1) & (prev_fire == 0)
     a_now = np.stack([s["agents"] for s in rec.steps])
     a_next = np.stack([s["next_agents"] for s in rec.steps])
     ended = np.stack([s["term"] | s["trunc"] for s in rec.steps])
     valid = (a_now["alive"] == 1) & (a_next["alive"] == 1) & ~ended[..., None] & ~reset_before[..., None]
-    shot = valid & (a_now["ammo"] - a_next["ammo"] > 0)
+    ammo_drop = valid & (a_now["ammo"] - a_next["ammo"] > 0)
+    if "shots" in P.EVENT_NAMES:  # counted by the server, exact even when a refill hides the ammo drop
+        shot = np.stack([s["events"][..., P.EVENT_NAMES.index("shots")] for s in rec.steps]) > 0
+    else:
+        shot = ammo_drop
     gun = a_now["weapon"] == GUN
     ready = valid & gun & (a_now["ammo"] > 0) & (a_now["vec"][..., V["reload"]] == 0)
-    return {"press": press, "shot": shot, "valid": valid, "ready": ready, "a_now": a_now, "a_next": a_next,
+    return {"press": press, "shot": shot, "ammo_drop": ammo_drop, "valid": valid, "ready": ready, "a_now": a_now, "a_next": a_next,
             "fire": fire, "prev_fire": prev_fire}
 
 
 def timing_report(sp):
     press, shot, valid, ready = sp["press"], sp["shot"], sp["valid"], sp["ready"]
     out = {
+        "protocol": P.VERSION,
+        "shots_per_decision": float(shot.sum() / valid.sum()),
+        "ammo_drop_without_shot_event": int((sp["ammo_drop"] & ~shot).sum()),
+        "shot_event_without_ammo_drop": int((shot & valid & ~sp["ammo_drop"]).sum()),
+        "fire1_decisions": int((valid & (sp["fire"] == 1)).sum()),
+        "fire1_ready_decisions": int((ready & (sp["fire"] == 1)).sum()),
+        "fire1_ready_that_shot": int((ready & (sp["fire"] == 1) & shot).sum()),
         "decisions_valid": int(valid.sum()),
         "shots": int(shot.sum()),
         "shots_without_press_at_that_decision": int((shot & ~press).sum()),
@@ -388,7 +399,11 @@ def signal_report(rec, sp, hits, batches, trainer, policy, cfg):
         x = towards[m]
         return {"n": int(m.sum()), "mean": float(x.mean()), "rms": float(np.sqrt((x ** 2).mean())),
                 "per_update_signal": float(x.sum() * per_batch), "per_update_noise_sd": float(x.std() * math.sqrt(m.sum() * per_batch))}
-    out["aim_gradient_towards_opponent"] = {"from_shot_decisions": part(shot_i), "from_other_decisions": part(~shot_i)}
+    # hook launches also use the target vector: hook pressed while the hook is idle
+    hook_launch = ((acts[..., 3] == 1) & (a_now["hook_state"] == 0))[idx]
+    out["aim_gradient_towards_opponent"] = {"from_shot_decisions": part(shot_i), "from_other_decisions": part(~shot_i),
+                                            "from_hook_launch_non_shot": part(~shot_i & hook_launch),
+                                            "from_rest_non_shot": part(~shot_i & ~hook_launch)}
     allx = towards
     out["aim_gradient_towards_opponent"]["all_per_update_snr"] = float(allx.sum() * per_batch / (allx.std() * math.sqrt(len(allx) * per_batch)))
     out["aim_gradient_towards_opponent"]["shot_only_per_update_snr"] = float(towards[shot_i].sum() * per_batch / (towards[shot_i].std() * math.sqrt(shot_i.sum() * per_batch)))

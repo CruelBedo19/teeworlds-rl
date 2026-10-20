@@ -33,9 +33,11 @@ def fake_batch(n=256, seed=0, **policy_kw):
     vec = torch.randn(n, P.VEC_DIM, generator=g)
     codes = torch.randint(0, 8, (n, P.GRID_HEIGHT, P.GRID_WIDTH), generator=g, dtype=torch.uint8) & 7
     with torch.no_grad():
-        actions, logp, values, _ = policy.act(vec, codes, g)
+        actions, logp, values, _, aim_logp = policy.act(vec, codes, g)
     adv = torch.randn(n, generator=g)
+    aim_mask = (torch.rand(n, generator=g) < 0.3).float()  # decisions where a shot left the gun
     return policy, {"vec": vec, "codes": codes, "actions": actions, "logp": logp, "values": values, "adv": adv,
+                    "aim_logp": aim_logp, "aim_mask": aim_mask,
                     "returns": adv + values}
 
 
@@ -52,7 +54,7 @@ class TestPolicy(unittest.TestCase):
         logits, value = policy(batch["vec"], batch["codes"])
         self.assertEqual(logits.shape, (256, sum(HEADS)))
         self.assertEqual(value.shape, (256,))
-        _, ent, _, aim_ent = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
+        _, ent, _, aim_ent, _ = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
         self.assertTrue(torch.equal(aim_ent, torch.zeros(256)))  # the categorical aim is in ent
         # the actor head starts almost uniform: entropy close to the maximum
         self.assertAlmostEqual(ent.mean().item(), sum(np.log(HEADS)), delta=0.01)
@@ -143,8 +145,9 @@ class TestGaussianAim(unittest.TestCase):
     def test_act_and_evaluate_agree(self):
         policy, batch = fake_batch(aim="gaussian")
         self.assertEqual(batch["actions"].shape, (256, len(DISCRETE) + 2))
-        logp, ent, value, aim_ent = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
+        logp, ent, value, aim_ent, aim_logp = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
         self.assertTrue(torch.allclose(logp, batch["logp"], atol=1e-5))
+        self.assertTrue(torch.allclose(aim_logp, batch["aim_logp"], atol=1e-5))
         self.assertTrue(torch.allclose(value, batch["values"]))
         # discrete heads near uniform; aim std exp(-0.5) per axis at the start, reported on its own
         self.assertAlmostEqual(ent.mean().item(), sum(np.log(DISCRETE)), delta=0.01)
@@ -202,6 +205,52 @@ class TestGaussianAim(unittest.TestCase):
         after = policy(batch["vec"], batch["codes"])[0][:, -2].mean().item()
         self.assertGreater(after, before + 0.01)
 
+    def grads(self, policy, batch, mask_value, cfg=None):
+        """Gradients of one loss evaluation with every decision's aim mask set to mask_value."""
+        b = dict(batch, aim_mask=torch.full_like(batch["aim_mask"], mask_value))
+        trainer = Trainer(NoEnv(), policy, cfg or PPOConfig())
+        policy.zero_grad()
+        trainer.losses(b, torch.arange(len(b["adv"])), b["adv"])["loss"].backward()
+        return {n: (p.grad.clone() if p.grad is not None else torch.zeros_like(p)) for n, p in policy.named_parameters()}
+
+    def test_no_aim_gradient_without_a_shot(self):
+        policy, batch = fake_batch(aim="gaussian")
+        g = self.grads(policy, batch, 0.0)
+        self.assertEqual(g["pi.weight"][-2:].abs().max().item(), 0.0)
+        self.assertEqual(g["pi.bias"][-2:].abs().max().item(), 0.0)
+        self.assertEqual(g["log_std"].abs().max().item(), 0.0)
+
+    def test_aim_gradient_with_a_shot(self):
+        policy, batch = fake_batch(aim="gaussian")
+        g = self.grads(policy, batch, 1.0)
+        self.assertGreater(g["pi.weight"][-2:].abs().max().item(), 0.0)
+        self.assertGreater(g["log_std"].abs().max().item(), 0.0)
+        # only the shot decisions count: masking half the decisions changes the aim gradient
+        half = dict(batch, aim_mask=(torch.arange(len(batch["adv"])) % 2).float())
+        trainer = Trainer(NoEnv(), policy, PPOConfig())
+        policy.zero_grad()
+        trainer.losses(half, torch.arange(len(half["adv"])), half["adv"])["loss"].backward()
+        self.assertFalse(torch.equal(policy.pi.weight.grad[-2:], g["pi.weight"][-2:]))
+
+    def test_other_heads_do_not_see_the_mask(self):
+        policy, batch = fake_batch(aim="gaussian")
+        g0, g1 = self.grads(policy, batch, 0.0), self.grads(policy, batch, 1.0)
+        k = sum(DISCRETE)
+        self.assertTrue(torch.equal(g0["pi.weight"][:k], g1["pi.weight"][:k]))
+        self.assertTrue(torch.equal(g0["pi.bias"][:k], g1["pi.bias"][:k]))
+        self.assertTrue(torch.equal(g0["v.weight"], g1["v.weight"]))
+        # a categorical aim is not masked at all
+        policy, batch = fake_batch(aim="categorical")
+        g0, g1 = self.grads(policy, batch, 0.0), self.grads(policy, batch, 1.0)
+        self.assertTrue(all(torch.equal(g0[n], g1[n]) for n in g0))
+
+    def test_unmasked_mode_is_the_joint_ratio(self):
+        policy, batch = fake_batch(aim="gaussian")
+        g0 = self.grads(policy, batch, 0.0, PPOConfig(aim_mask="all"))
+        g1 = self.grads(policy, batch, 1.0, PPOConfig(aim_mask="all"))
+        self.assertTrue(all(torch.equal(g0[n], g1[n]) for n in g0))
+        self.assertGreater(g0["pi.weight"][-2:].abs().max().item(), 0.0)
+
     def test_checkpoint_keeps_the_aim_kind(self):
         policy, batch = fake_batch(aim="gaussian")
         trainer = Trainer(NoEnv(), policy, PPOConfig(epochs=1, minibatch=128))
@@ -258,6 +307,9 @@ class TestTrainingLoop(unittest.TestCase):
             self.assertEqual(len(trainer.finished), 8)
             self.assertTrue(all(torch.equal(a, b) for a, b in zip(frozen, opponent.parameters())))
             self.assertFalse(all(torch.equal(a, b) for a, b in zip(frozen, learner.parameters())))
+            # the aim mask marks exactly the learner decisions with a shot, and a shot needs fire=1
+            self.assertGreater(batch["aim_mask"].sum().item(), 0)
+            self.assertTrue(torch.all(batch["actions"][batch["aim_mask"] == 1, 2] == 1))
             alive, visible, _, shots, _, _ = trainer.behaviour
             self.assertGreater(alive, 0)
             self.assertLessEqual(visible, alive)

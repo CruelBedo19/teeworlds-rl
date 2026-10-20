@@ -1,0 +1,112 @@
+From af9f0814e1cc31bd55ad1c5bf898666fbce656c3 Mon Sep 17 00:00:00 2001
+From: teeworlds-rl <noreply@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 21:39:27 +0200
+Subject: [PATCH] RL bridge protocol v3: fire is a new press at every decision,
+ shots are counted
+
+fire=1 used to hold the button, so the (non-automatic) gun only shot when the previous decision
+had fire=0, a state the policy does not observe. Now fire=1 releases and presses again when the
+button is still held. Shots that actually leave a weapon are counted per agent (OnShot from
+CCharacter::FireWeapon) and sent as a seventh event, which bumps the protocol to version 3.
+---
+ src/game/server/entities/character.cpp |  3 +++
+ src/game/server/rlenv.cpp              | 23 ++++++++++++++++++-----
+ src/game/server/rlenv.h                |  4 +++-
+ 3 files changed, 24 insertions(+), 6 deletions(-)
+
+diff --git a/src/game/server/entities/character.cpp b/src/game/server/entities/character.cpp
+index 49423ac..ceb7cde 100644
+--- a/src/game/server/entities/character.cpp
++++ b/src/game/server/entities/character.cpp
+@@ -287,6 +287,9 @@ void CCharacter::FireWeapon()
+ 		return;
+ 	}
+ 
++	if(GameServer()->m_pRlEnv)
++		GameServer()->m_pRlEnv->OnShot(m_pPlayer->GetCID());
++
+ 	vec2 ProjStartPos = m_Pos+Direction*GetProximityRadius()*0.75f;
+ 
+ 	if(Config()->m_Debug)
+diff --git a/src/game/server/rlenv.cpp b/src/game/server/rlenv.cpp
+index 6a5e0f8..fdc73b5 100644
+--- a/src/game/server/rlenv.cpp
++++ b/src/game/server/rlenv.cpp
+@@ -27,7 +27,7 @@ typedef char CHelloSizeCheck[sizeof(CRlEnv::CHello) == 76 ? 1 : -1];
+ typedef char CResetSizeCheck[sizeof(CRlEnv::CReset) == 8 ? 1 : -1];
+ typedef char CActionSizeCheck[sizeof(CRlEnv::CAction) == 24 ? 1 : -1];
+ typedef char CAgentInfoSizeCheck[sizeof(CRlEnv::CAgentInfo) == 40 ? 1 : -1];
+-typedef char CAgentObsSizeCheck[sizeof(CRlEnv::CAgentObs) == 24+40+4*CRlEnv::VEC_DIM+CRlEnv::GRID_BYTES ? 1 : -1];
++typedef char CAgentObsSizeCheck[sizeof(CRlEnv::CAgentObs) == 28+40+4*CRlEnv::VEC_DIM+CRlEnv::GRID_BYTES ? 1 : -1];
+ // the observation layout has one slot per weapon
+ typedef char CWeaponCountCheck[NUM_WEAPONS == 6 ? 1 : -1];
+ typedef char CObsSizeCheck[sizeof(CRlEnv::CObs) == 20+CRlEnv::NUM_AGENTS*sizeof(CRlEnv::CAgentObs) ? 1 : -1];
+@@ -402,12 +402,18 @@ void CRlEnv::SetActions(const CAction *pActions)
+ 	{
+ 		m_aAction[i] = pActions[i];
+ 
+-		// like the client, count every press and every release
+-		int Held = pActions[i].m_Fire ? 1 : 0;
+-		if(Held != m_aFireHeld[i])
++		// fire=1 is a new press at every decision: when the button is still held from the previous
++		// decision it is released and pressed again, so the press does not depend on a previous fire
++		// state the policy cannot see. The counter counts every press and every release like the client.
++		if(pActions[i].m_Fire)
++		{
++			m_aFireCounter[i] = (m_aFireCounter[i]+(m_aFireHeld[i] ? 2 : 1))&INPUT_STATE_MASK;
++			m_aFireHeld[i] = 1;
++		}
++		else if(m_aFireHeld[i])
+ 		{
+ 			m_aFireCounter[i] = (m_aFireCounter[i]+1)&INPUT_STATE_MASK;
+-			m_aFireHeld[i] = Held;
++			m_aFireHeld[i] = 0;
+ 		}
+ 	}
+ }
+@@ -470,6 +476,13 @@ void CRlEnv::OnDeath(int Victim, int Killer, int Weapon)
+ 		m_aEvents[KillerIndex].m_Kills++;
+ }
+ 
++void CRlEnv::OnShot(int ClientID)
++{
++	int Index = AgentIndex(ClientID);
++	if(Index >= 0)
++		m_aEvents[Index].m_Shots++;
++}
++
+ void CRlEnv::ClearEvents()
+ {
+ 	mem_zero(m_aEvents, sizeof(m_aEvents));
+diff --git a/src/game/server/rlenv.h b/src/game/server/rlenv.h
+index eccced0..073f3b6 100644
+--- a/src/game/server/rlenv.h
++++ b/src/game/server/rlenv.h
+@@ -22,7 +22,7 @@ public:
+ 		MAX_SPAWN_POINTS=3*64,
+ 
+ 		PROTOCOL_MAGIC=0x4C525754, // "TWRL"
+-		PROTOCOL_VERSION=2,
++		PROTOCOL_VERSION=3,
+ 
+ 		MSG_HELLO=1,
+ 		MSG_RESET,
+@@ -104,6 +104,7 @@ public:
+ 		int m_DamageDealt;
+ 		int m_DamageTaken;
+ 		int m_Score;
++		int m_Shots; // weapon shots fired since the previous OBS
+ 		CAgentInfo m_Info;
+ 		float m_aVec[VEC_DIM];
+ 		unsigned char m_aGrid[GRID_BYTES];
+@@ -137,6 +138,7 @@ public:
+ 
+ 	void OnDamage(int Victim, int From, int Amount);
+ 	void OnDeath(int Victim, int Killer, int Weapon);
++	void OnShot(int ClientID);
+ 	// the first spawn of an episode goes to a seeded random map spawn point
+ 	bool TakeSpawn(int ClientID, vec2 *pPos);
+ 
+-- 
+2.47.3
+

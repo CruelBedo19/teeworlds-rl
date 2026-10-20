@@ -128,7 +128,7 @@ class TestBasics(unittest.TestCase):
         np.testing.assert_array_equal(a["health"], [10, 10])
         np.testing.assert_array_equal(a["weapon"], [1, 1])  # gun
         np.testing.assert_array_equal(a["ammo"], [10, 10])
-        np.testing.assert_array_equal(info["events"], np.zeros((2, 6)))
+        np.testing.assert_array_equal(info["events"], np.zeros((2, len(P.EVENT_NAMES))))
         for i in range(2):
             self.assertEqual(obs["vec"][i, V["alive"]], 1.0)
             self.assertEqual(obs["vec"][i, V["weapon_gun"]], 1.0)
@@ -186,6 +186,42 @@ class TestBasics(unittest.TestCase):
         self.assertLess(info["agents"]["ammo"][0], 10)
         self.assertEqual(info["agents"]["ammo"][1], 10)
         self.assertAlmostEqual(obs["vec"][0, V["ammo"]], info["agents"]["ammo"][0] / 10.0)
+
+    def test_fire_held_over_decisions_keeps_shooting(self):
+        # fire=1 at every decision is a new press each time: the (non-automatic) gun shoots whenever it is ready
+        obs, info = self.env.reset(seed=1)
+        shots, prev = [], info["agents"]["ammo"][0]
+        S = P.EVENT_NAMES.index("shots")
+        for _ in range(40):
+            obs, _, _, _, info = self.env.step([Action(fire=1, target_x=0, target_y=1), Action()])
+            ammo = info["agents"]["ammo"][0]
+            shots.append(info["events"][0, S])
+            self.assertLessEqual(info["events"][0, S], 1)
+            self.assertLessEqual(ammo, prev - info["events"][0, S] + 1)  # at most one refill per decision
+            prev = ammo
+        self.assertGreaterEqual(sum(shots), 8)  # the full magazine of 10 and more, not a single press
+        self.assertEqual(info["events"][1, S], 0)
+
+    def test_shots_count_only_real_shots(self):
+        obs, info = self.env.reset(seed=1)
+        S = P.EVENT_NAMES.index("shots")
+        total = 0
+        for step in range(140):
+            fire = 1 if step < 100 else 0
+            ammo_before = info["agents"]["ammo"][0]
+            obs, _, _, _, info = self.env.step([Action(fire=fire, target_x=256, target_y=0), Action()])
+            n = info["events"][0, S]
+            if n:
+                self.assertGreater(ammo_before, 0)  # an empty gun does not shoot
+            if not fire:
+                self.assertEqual(n, 0)
+            total += n
+            if step == 99:
+                # the magazine, and no refill: like a player clicking an empty gun, every press restarts
+                # the 125 ms no-ammo delay, which holds the ammo regeneration back (CCharacter::HandleWeapons)
+                self.assertEqual(total, 10)
+                self.assertEqual(info["agents"]["ammo"][0], 0)
+        self.assertGreater(info["agents"]["ammo"][0], 0)  # refills once the trigger is left alone
 
     def test_hook(self):
         self.env.reset(seed=1)
@@ -405,7 +441,7 @@ class TestCombat(unittest.TestCase):
         with make_env(map="lms1", episode_ticks=6000) as env:
             rng = random.Random(10)
             obs, info = env.reset(seed=10)
-            totals = np.zeros((2, 6), dtype=int)
+            totals = np.zeros((2, len(P.EVENT_NAMES)), dtype=int)
             score = [0, 0]
             k = {n: j for j, n in enumerate(P.EVENT_NAMES)}
             for step in range(3000):
@@ -502,7 +538,7 @@ class TestVecEnv(unittest.TestCase):
         resets = 0
         for step, (obs, rewards, terminated, truncated, infos) in enumerate(out[1:], 1):
             self.assertEqual(rewards.shape, (3, 2))
-            self.assertEqual(infos["events"].shape, (3, 2, 6))
+            self.assertEqual(infos["events"].shape, (3, 2, len(P.EVENT_NAMES)))
             if step % 20 == 0:  # 40 ticks = 20 steps
                 self.assertTrue(truncated.all())
                 self.assertEqual(infos["final_vec"].shape, (3, 2, P.VEC_DIM))

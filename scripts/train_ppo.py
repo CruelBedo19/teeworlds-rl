@@ -101,7 +101,7 @@ def main():
             t1 = time.time()
             stats = trainer.train(batch)
             t2 = time.time()
-            finished = np.array(trainer.finished) if trainer.finished else np.zeros((0, 2, 6))
+            finished = np.array(trainer.finished) if trainer.finished else np.zeros((0, 2, len(EVENT_NAMES)))
             trainer.finished = []
             beh = dict(zip(BEHAVIOUR, trainer.behaviour))
             trainer.behaviour[:] = 0
@@ -114,12 +114,13 @@ def main():
                    "shots": beh["shots"], "hit_rate": beh["damage_dealt"] / max(beh["shots"], 1), "step_kills": beh["kills"]}
             if len(finished):
                 if opponent is None:
-                    row.update({"ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished.reshape(-1, 6)[:, :5].mean(axis=0))})
+                    row.update({"ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished.reshape(-1, len(EVENT_NAMES))[:, :5].mean(axis=0))})
                 else:  # learner first, then the frozen opponent
                     row.update({"ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished[:, 0, :5].mean(axis=0))})
                     row.update({"opp_ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished[:, 1, :5].mean(axis=0))})
-                    row["win_rate"] = float((finished[:, 0, 5] > finished[:, 1, 5]).mean())
-                    row["loss_rate"] = float((finished[:, 0, 5] < finished[:, 1, 5]).mean())
+                    score = EVENT_NAMES.index("score")
+                    row["win_rate"] = float((finished[:, 0, score] > finished[:, 1, score]).mean())
+                    row["loss_rate"] = float((finished[:, 0, score] < finished[:, 1, score]).mean())
             log.write(json.dumps(row) + "\n")
             log.flush()
             if trainer.update % 10 == 0 or trainer.update == 1:

@@ -1,0 +1,1107 @@
+{
+ "learner": "runs/learn-gauss-vs-frozen/ckpt_final.pt",
+ "opponent": "runs/learn-gauss-vs-frozen/ckpt_0000.pt",
+ "self_play_pipeline": {
+  "max_abs_err": {
+   "obs": 0.0,
+   "actions_to_env": 0.0,
+   "reward": 1.2735836207259515e-09,
+   "adv": 3.802913756470461e-09,
+   "returns": 4.092727989846168e-09
+  },
+  "truncations": 20,
+  "terminations": 0,
+  "learner_rows": 8
+ },
+ "vs_frozen_pipeline": {
+  "max_abs_err": {
+   "obs": 0.0,
+   "actions_to_env": 0.0,
+   "reward": 1.862645149230957e-08,
+   "adv": 1.9661710165541635e-07,
+   "returns": 2.0280166562747226e-07
+  },
+  "truncations": 96,
+  "terminations": 0,
+  "learner_rows": 32
+ },
+ "events": {
+  "damage_dealt_minus_other_taken_max": [
+   0,
+   0
+  ],
+  "kills_minus_other_deaths_max": [
+   0,
+   0
+  ],
+  "env_reward_vs_events_max_err": 1.862645149230957e-08,
+  "steps_with_damage": 251,
+  "steps_with_kill": 3,
+  "steps_with_suicide": 0
+ },
+ "timing": {
+  "protocol": 3,
+  "shots_per_decision": 0.06681313711589704,
+  "ammo_drop_without_shot_event": 0,
+  "shot_event_without_ammo_drop": 0,
+  "fire1_decisions": 164439,
+  "fire1_ready_decisions": 22012,
+  "fire1_ready_that_shot": 21855,
+  "decisions_valid": 327256,
+  "shots": 21865,
+  "shots_without_press_at_that_decision": 0,
+  "ready_and_press": 22012,
+  "ready_and_press_that_shot": 21855,
+  "ready_without_press_that_shot": 0,
+  "ready_fire1_after_fire1_no_shot": 60,
+  "ready_fire1_after_fire0": 21165,
+  "weapon_counts_alive": {
+   "gun": 327643
+  },
+  "shots_one_decision_after_a_press_only": 0
+ },
+ "aim": {
+  "target_rounding_max_err": 1.0,
+  "target_vs_sample_angle_deg": {
+   "max": 0.15757928826674708,
+   "p99": 0.13479634334414
+  },
+  "opp_offset_vs_raw_pos_max_err_units": 3.0517578125e-05,
+  "projectile_dir_vs_target": {
+   "shots_matched": 17049,
+   "of_shots": 21865,
+   "median_deg": 0.6206490347743401,
+   "p95_deg": 0.9417281166820203,
+   "max_deg": 0.9456229181647767
+  }
+ },
+ "hits_by_range": {
+  "contact_lt70": {
+   "n": 107,
+   "aim_error_deg_median": 36.63832464990947,
+   "delay_0_or_1": 107
+  },
+  "ranged_ge70": {
+   "n": 144,
+   "aim_error_deg_median": 9.433623267704474,
+   "aim_error_deg_p90": 20.079869775002507,
+   "path_miss_median": 17.61901811367782,
+   "path_miss_max": 35.353978870354126,
+   "delay": {
+    "0": 23,
+    "1": 51,
+    "2": 23,
+    "3": 11,
+    "4": 4,
+    "5": 12,
+    "6": 4,
+    "7": 2,
+    "8": 5,
+    "11": 2,
+    "12": 1,
+    "14": 1,
+    "15": 1,
+    "17": 1,
+    "23": 1,
+    "27": 1,
+    "28": 1
+   }
+  }
+ },
+ "long_delay_examples": [
+  {
+   "t": 75,
+   "env": 4,
+   "agent": 1,
+   "linked": true,
+   "shot_step": 52,
+   "delay": 23,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 1961.0328369140625,
+   "victim_offset_at_shot": [
+    -1839.0,
+    6.0
+   ],
+   "victim_vel_at_hit": [
+    -1.5,
+    -7.5
+   ],
+   "path_miss_units": 11.400925624887716,
+   "candidates": 9,
+   "dist_at_shot": 1839.009765625,
+   "aim_error_deg": 7.367470493521029,
+   "damage": 1
+  },
+  {
+   "t": 168,
+   "env": 11,
+   "agent": 1,
+   "linked": true,
+   "shot_step": 140,
+   "delay": 28,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 2285.103271484375,
+   "victim_offset_at_shot": [
+    2226.0,
+    -107.0
+   ],
+   "victim_vel_at_hit": [
+    4.51171875,
+    -2.9921875
+   ],
+   "path_miss_units": 28.487037861462777,
+   "candidates": 2,
+   "dist_at_shot": 2228.570068359375,
+   "aim_error_deg": 16.178705659205175,
+   "damage": 1
+  },
+  {
+   "t": 1628,
+   "env": 18,
+   "agent": 0,
+   "linked": true,
+   "shot_step": 1611,
+   "delay": 17,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 1517.92626953125,
+   "victim_offset_at_shot": [
+    1481.0,
+    255.0
+   ],
+   "victim_vel_at_hit": [
+    -0.75390625,
+    -8.1171875
+   ],
+   "path_miss_units": 23.023245017874093,
+   "candidates": 3,
+   "dist_at_shot": 1502.792724609375,
+   "aim_error_deg": 21.254867922572643,
+   "damage": 1
+  },
+  {
+   "t": 1773,
+   "env": 11,
+   "agent": 1,
+   "linked": true,
+   "shot_step": 1761,
+   "delay": 12,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 1070.1966552734375,
+   "victim_offset_at_shot": [
+    1137.0,
+    -144.0
+   ],
+   "victim_vel_at_hit": [
+    0.87890625,
+    17.35546875
+   ],
+   "path_miss_units": 16.357533212495785,
+   "candidates": 4,
+   "dist_at_shot": 1146.0823974609375,
+   "aim_error_deg": 8.11320260648563,
+   "damage": 1
+  },
+  {
+   "t": 2017,
+   "env": 24,
+   "agent": 0,
+   "linked": true,
+   "shot_step": 2002,
+   "delay": 15,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 1365.5859375,
+   "victim_offset_at_shot": [
+    1406.0,
+    49.0
+   ],
+   "victim_vel_at_hit": [
+    -0.87109375,
+    7.52734375
+   ],
+   "path_miss_units": 21.157920481597667,
+   "candidates": 4,
+   "dist_at_shot": 1406.8536376953125,
+   "aim_error_deg": 9.398462348804168,
+   "damage": 1
+  },
+  {
+   "t": 2043,
+   "env": 15,
+   "agent": 1,
+   "linked": true,
+   "shot_step": 2016,
+   "delay": 27,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 2256.115234375,
+   "victim_offset_at_shot": [
+    2285.0,
+    -104.0
+   ],
+   "victim_vel_at_hit": [
+    -3.2265625,
+    6.63671875
+   ],
+   "path_miss_units": 16.810520638265903,
+   "candidates": 3,
+   "dist_at_shot": 2287.365478515625,
+   "aim_error_deg": 21.856504692607302,
+   "damage": 1
+  },
+  {
+   "t": 4057,
+   "env": 11,
+   "agent": 1,
+   "linked": true,
+   "shot_step": 4046,
+   "delay": 11,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 1039.1246337890625,
+   "victim_offset_at_shot": [
+    923.0,
+    394.0
+   ],
+   "victim_vel_at_hit": [
+    0.0,
+    5.5859375
+   ],
+   "path_miss_units": 25.275506273809764,
+   "candidates": 3,
+   "dist_at_shot": 1003.5761108398438,
+   "aim_error_deg": 9.568190039388144,
+   "damage": 1
+  },
+  {
+   "t": 4058,
+   "env": 12,
+   "agent": 1,
+   "linked": true,
+   "shot_step": 4047,
+   "delay": 11,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 1007.4705810546875,
+   "victim_offset_at_shot": [
+    -904.0,
+    -124.0
+   ],
+   "victim_vel_at_hit": [
+    -2.76171875,
+    -11.5
+   ],
+   "path_miss_units": 13.419779134140924,
+   "candidates": 3,
+   "dist_at_shot": 912.4647827148438,
+   "aim_error_deg": 7.797409841260015,
+   "damage": 1
+  },
+  {
+   "t": 4444,
+   "env": 7,
+   "agent": 0,
+   "linked": true,
+   "shot_step": 4430,
+   "delay": 14,
+   "undetected_press_within_5": 0,
+   "dealer_weapon": "gun",
+   "dealer_alive": 1,
+   "dealer_died_since_shot": 0,
+   "victim_dist_at_hit": 1264.2408447265625,
+   "victim_offset_at_shot": [
+    -1243.0,
+    37.0
+   ],
+   "victim_vel_at_hit": [
+    -2.96484375,
+    7.9375
+   ],
+   "path_miss_units": 21.201966691133645,
+   "candidates": 1,
+   "dist_at_shot": 1243.550537109375,
+   "aim_error_deg": 8.885537947408476,
+   "damage": 1
+  }
+ ],
+ "long_delay_links": {
+  "n": 9,
+  "with_undetected_press_within_5": 0,
+  "shot_reused_by_an_earlier_hit": 0
+ },
+ "short_delay_links": {
+  "n": 242,
+  "with_undetected_press_within_5": 0
+ },
+ "hits": {
+  "damage_events": 251,
+  "linked_to_a_shot": 251,
+  "path_miss_units": {
+   "median": 19.46513708207177,
+   "p95": 32.01772255536102,
+   "max": 38.11818271173036
+  },
+  "delay_decisions": {
+   "0": 130,
+   "1": 51,
+   "2": 23,
+   "3": 11,
+   "4": 4,
+   "5": 12,
+   "6": 4,
+   "7": 2,
+   "8": 5,
+   "11": 2,
+   "12": 1,
+   "14": 1,
+   "15": 1,
+   "17": 1,
+   "23": 1,
+   "27": 1,
+   "28": 1
+  },
+  "aim_error_deg_of_hitting_shots": {
+   "median": 15.30377183861751,
+   "p95": 165.77752615610126
+  },
+  "dist_at_shot": {
+   "median": 85.47514343261719
+  }
+ },
+ "signal": {
+  "learner_decisions": 163840,
+  "learner_shots": 10883,
+  "learner_shots_opp_visible": 5148,
+  "learner_hit_shots": 128,
+  "adv_shot_hit": {
+   "n": 128,
+   "mean": 6.387913142942125,
+   "median": 6.9596710205078125,
+   "sem": 0.33923426811901936
+  },
+  "adv_shot_miss_visible": {
+   "n": 5025,
+   "mean": -0.024807260781931267,
+   "median": 0.020638352259993553,
+   "sem": 0.014889056371474328
+  },
+  "adv_no_shot": {
+   "n": 152957,
+   "mean": -0.003168920554927252,
+   "median": -0.006102018989622593,
+   "sem": 0.002531853026017139
+  },
+  "corr_adv_cos_on_visible_shots": 0.0901076749677572,
+  "corr_adv_cos_on_visible_non_shots": 0.014194786202658112,
+  "adv_by_cos_on_visible_shots": [
+   {
+    "cos": [
+     -1,
+     0.0
+    ],
+    "hit_rate": 0.008076358296622614,
+    "n": 2724,
+    "mean": 0.04398937778135722,
+    "median": 0.040794579312205315,
+    "sem": 0.023334746516722106
+   },
+   {
+    "cos": [
+     0.0,
+     0.9
+    ],
+    "hit_rate": 0.006597031335898846,
+    "n": 1819,
+    "mean": -0.004768494693984066,
+    "median": 0.013563931919634342,
+    "sem": 0.028500358079420453
+   },
+   {
+    "cos": [
+     0.9,
+     0.99
+    ],
+    "hit_rate": 0.11380145278450363,
+    "n": 413,
+    "mean": 0.7158259712295639,
+    "median": -0.011453039012849331,
+    "sem": 0.13031419860294635
+   },
+   {
+    "cos": [
+     0.99,
+     1.0
+    ],
+    "hit_rate": 0.21875,
+    "n": 192,
+    "mean": 1.3887461032257609,
+    "median": 0.07226623594760895,
+    "sem": 0.2551582121234696
+   }
+  ],
+  "aim_gradient_towards_opponent": {
+   "from_shot_decisions": {
+    "n": 5148,
+    "mean": 0.17024273137483545,
+    "rms": 3.873216253263602,
+    "per_update_signal": 21.910239527941325,
+    "per_update_noise_sd": 43.89763244618862
+   },
+   "from_other_decisions": {
+    "n": 74405,
+    "mean": 0.01988204253679765,
+    "rms": 3.373451598275155,
+    "per_update_signal": 36.98308437376073,
+    "per_update_noise_sd": 145.49162861995788
+   },
+   "from_hook_launch_non_shot": {
+    "n": 19417,
+    "mean": 0.03938077311436053,
+    "rms": 3.3874451707486584,
+    "per_update_signal": 19.116411789038462,
+    "per_update_noise_sd": 74.628376540696
+   },
+   "from_rest_non_shot": {
+    "n": 54988,
+    "mean": 0.012996779358930875,
+    "rms": 3.368496392263575,
+    "per_update_signal": 17.866672584722274,
+    "per_update_noise_sd": 124.89263262645888
+   },
+   "all_per_update_snr": 0.3875102777196695,
+   "shot_only_per_update_snr": 0.4991212123979517
+  }
+ },
+ "traces": [
+  {
+   "hit": {
+    "t": 14,
+    "env": 3,
+    "agent": 1,
+    "linked": true,
+    "shot_step": 14,
+    "delay": 0,
+    "undetected_press_within_5": 0,
+    "dealer_weapon": "gun",
+    "dealer_alive": 1,
+    "dealer_died_since_shot": 0,
+    "victim_dist_at_hit": 35.22782897949219,
+    "victim_offset_at_shot": [
+     -20.0,
+     29.0
+    ],
+    "victim_vel_at_hit": [
+     -3.875,
+     3.11328125
+    ],
+    "path_miss_units": 27.80751000459617,
+    "candidates": 3,
+    "dist_at_shot": 35.22782897949219,
+    "aim_error_deg": 52.10661818740421,
+    "damage": 1
+   },
+   "steps": [
+    {
+     "decision": -1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2207.0,
+      394.0
+     ],
+     "opp_offset": [
+      -12.0,
+      26.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -12.0,
+      26.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 8,
+     "ammo_next": 9,
+     "fire": 0,
+     "target": [
+      -246,
+      71
+     ],
+     "aim_error_deg": 49.1,
+     "opp_health_next": 10,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0086,
+     "adv_norm": 3.162
+    },
+    {
+     "decision": 0,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2211.0,
+      394.0
+     ],
+     "opp_offset": [
+      -20.0,
+      29.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -20.0,
+      29.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 9,
+     "ammo_next": 8,
+     "fire": 1,
+     "target": [
+      77,
+      244
+     ],
+     "aim_error_deg": 52.1,
+     "opp_health_next": 9,
+     "opp_armor_next": 0,
+     "events": {
+      "damage_dealt": 1
+     },
+     "reward": 0.02,
+     "adv": 0.0081,
+     "adv_norm": 2.964
+    },
+    {
+     "decision": 1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2216.0,
+      398.0
+     ],
+     "opp_offset": [
+      -32.0,
+      34.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -32.0,
+      34.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 8,
+     "ammo_next": 8,
+     "fire": 1,
+     "target": [
+      30,
+      254
+     ],
+     "aim_error_deg": 50.0,
+     "opp_health_next": 9,
+     "opp_armor_next": 0,
+     "events": {
+      "damage_taken": 1
+     },
+     "reward": -0.02,
+     "adv": -0.0123,
+     "adv_norm": -4.554
+    }
+   ]
+  },
+  {
+   "hit": {
+    "t": 37,
+    "env": 23,
+    "agent": 1,
+    "linked": true,
+    "shot_step": 35,
+    "delay": 2,
+    "undetected_press_within_5": 0,
+    "dealer_weapon": "gun",
+    "dealer_alive": 1,
+    "dealer_died_since_shot": 0,
+    "victim_dist_at_hit": 245.46485900878906,
+    "victim_offset_at_shot": [
+     -259.0,
+     129.0
+    ],
+    "victim_vel_at_hit": [
+     10.828125,
+     -7.4453125
+    ],
+    "path_miss_units": 7.6752914718104215,
+    "candidates": 7,
+    "dist_at_shot": 289.3475341796875,
+    "aim_error_deg": 3.219079445539269,
+    "damage": 1
+   },
+   "steps": [
+    {
+     "decision": -1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      548.0,
+      934.0
+     ],
+     "opp_offset": [
+      -296.0,
+      124.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -296.0,
+      124.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 6,
+     "ammo_next": 6,
+     "fire": 0,
+     "target": [
+      227,
+      -118
+     ],
+     "aim_error_deg": 175.3,
+     "opp_health_next": 10,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0175,
+     "adv_norm": 6.439
+    },
+    {
+     "decision": 0,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      536.0,
+      910.0
+     ],
+     "opp_offset": [
+      -259.0,
+      129.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -259.0,
+      129.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 6,
+     "ammo_next": 5,
+     "fire": 1,
+     "target": [
+      -235,
+      101
+     ],
+     "aim_error_deg": 3.2,
+     "opp_health_next": 10,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0171,
+     "adv_norm": 6.282
+    },
+    {
+     "decision": 1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      529.0,
+      889.0
+     ],
+     "opp_offset": [
+      -230.0,
+      133.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -230.0,
+      133.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 5,
+     "ammo_next": 5,
+     "fire": 0,
+     "target": [
+      -187,
+      175
+     ],
+     "aim_error_deg": 13.1,
+     "opp_health_next": 10,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0193,
+     "adv_norm": 7.086
+    },
+    {
+     "decision": 2,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      524.0,
+      869.0
+     ],
+     "opp_offset": [
+      -203.0,
+      138.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -203.0,
+      138.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 5,
+     "ammo_next": 5,
+     "fire": 0,
+     "target": [
+      -98,
+      237
+     ],
+     "aim_error_deg": 33.3,
+     "opp_health_next": 9,
+     "opp_armor_next": 0,
+     "events": {
+      "damage_dealt": 1
+     },
+     "reward": 0.02,
+     "adv": 0.0199,
+     "adv_norm": 7.322
+    },
+    {
+     "decision": 3,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      524.0,
+      851.0
+     ],
+     "opp_offset": [
+      -186.0,
+      143.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -186.0,
+      143.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 5,
+     "ammo_next": 5,
+     "fire": 0,
+     "target": [
+      -253,
+      -39
+     ],
+     "aim_error_deg": 46.3,
+     "opp_health_next": 9,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0003,
+     "adv_norm": 0.072
+    }
+   ]
+  },
+  {
+   "hit": {
+    "t": 39,
+    "env": 3,
+    "agent": 1,
+    "linked": true,
+    "shot_step": 39,
+    "delay": 0,
+    "undetected_press_within_5": 0,
+    "dealer_weapon": "gun",
+    "dealer_alive": 1,
+    "dealer_died_since_shot": 0,
+    "victim_dist_at_hit": 56.64803695678711,
+    "victim_offset_at_shot": [
+     -20.0,
+     53.0
+    ],
+    "victim_vel_at_hit": [
+     -2.0,
+     9.10546875
+    ],
+    "path_miss_units": 13.04632958804223,
+    "candidates": 8,
+    "dist_at_shot": 56.64803695678711,
+    "aim_error_deg": 11.690169207733861,
+    "damage": 1
+   },
+   "steps": [
+    {
+     "decision": -1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2139.0,
+      234.0
+     ],
+     "opp_offset": [
+      -6.0,
+      44.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -6.0,
+      44.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 5,
+     "ammo_next": 5,
+     "fire": 0,
+     "target": [
+      -244,
+      76
+     ],
+     "aim_error_deg": 64.9,
+     "opp_health_next": 9,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0308,
+     "adv_norm": 11.33
+    },
+    {
+     "decision": 0,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2147.0,
+      243.0
+     ],
+     "opp_offset": [
+      -20.0,
+      53.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -20.0,
+      53.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 5,
+     "ammo_next": 4,
+     "fire": 1,
+     "target": [
+      -40,
+      253
+     ],
+     "aim_error_deg": 11.7,
+     "opp_health_next": 8,
+     "opp_armor_next": 0,
+     "events": {
+      "damage_dealt": 1
+     },
+     "reward": 0.02,
+     "adv": 0.0336,
+     "adv_norm": 12.385
+    },
+    {
+     "decision": 1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2155.0,
+      254.0
+     ],
+     "opp_offset": [
+      -28.0,
+      62.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -28.0,
+      62.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 4,
+     "ammo_next": 4,
+     "fire": 1,
+     "target": [
+      -97,
+      237
+     ],
+     "aim_error_deg": 2.0,
+     "opp_health_next": 8,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.015,
+     "adv_norm": 5.51
+    }
+   ]
+  },
+  {
+   "hit": {
+    "t": 45,
+    "env": 3,
+    "agent": 1,
+    "linked": true,
+    "shot_step": 44,
+    "delay": 1,
+    "undetected_press_within_5": 0,
+    "dealer_weapon": "gun",
+    "dealer_alive": 1,
+    "dealer_died_since_shot": 0,
+    "victim_dist_at_hit": 116.2755355834961,
+    "victim_offset_at_shot": [
+     -83.0,
+     86.0
+    ],
+    "victim_vel_at_hit": [
+     0.6640625,
+     0.0
+    ],
+    "path_miss_units": 24.943836042694002,
+    "candidates": 9,
+    "dist_at_shot": 119.5198745727539,
+    "aim_error_deg": 9.982242849726342,
+    "damage": 1
+   },
+   "steps": [
+    {
+     "decision": -1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2181.0,
+      305.0
+     ],
+     "opp_offset": [
+      -69.0,
+      83.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -69.0,
+      83.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 5,
+     "ammo_next": 5,
+     "fire": 0,
+     "target": [
+      -230,
+      113
+     ],
+     "aim_error_deg": 24.1,
+     "opp_health_next": 8,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0159,
+     "adv_norm": 5.853
+    },
+    {
+     "decision": 0,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2191.0,
+      330.0
+     ],
+     "opp_offset": [
+      -83.0,
+      86.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -83.0,
+      86.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 5,
+     "ammo_next": 4,
+     "fire": 1,
+     "target": [
+      -143,
+      212
+     ],
+     "aim_error_deg": 10.0,
+     "opp_health_next": 8,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.019,
+     "adv_norm": 6.993
+    },
+    {
+     "decision": 1,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2196.0,
+      357.0
+     ],
+     "opp_offset": [
+      -88.0,
+      76.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -88.0,
+      76.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 4,
+     "ammo_next": 4,
+     "fire": 0,
+     "target": [
+      -126,
+      223
+     ],
+     "aim_error_deg": 19.7,
+     "opp_health_next": 7,
+     "opp_armor_next": 0,
+     "events": {
+      "damage_dealt": 1
+     },
+     "reward": 0.02,
+     "adv": 0.0187,
+     "adv_norm": 6.878
+    },
+    {
+     "decision": 2,
+     "episode_tick_of_obs": null,
+     "my_pos": [
+      2195.0,
+      386.0
+     ],
+     "opp_offset": [
+      -91.0,
+      47.0
+     ],
+     "obs_opp_dx_dy_world": [
+      -91.0,
+      47.0
+     ],
+     "opp_visible": 1,
+     "line_of_fire": 1,
+     "ammo": 4,
+     "ammo_next": 4,
+     "fire": 1,
+     "target": [
+      -189,
+      173
+     ],
+     "aim_error_deg": 15.2,
+     "opp_health_next": 7,
+     "opp_armor_next": 0,
+     "events": {},
+     "reward": 0.0,
+     "adv": 0.0001,
+     "adv_norm": 0.017
+    }
+   ]
+  }
+ ]
+}

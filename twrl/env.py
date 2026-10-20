@@ -214,7 +214,7 @@ class TeeworldsEnv:
         return self.recv_obs()
 
     def rewards(self, events):
-        """events (..., 2, 6) -> rewards (..., 2) with the env's weights; score is not rewarded."""
+        """events (..., 2, EVENT_NAMES) -> rewards (..., 2) with the env's weights; score is not rewarded."""
         return events[..., :5].astype(np.float32) @ self.reward_weights
 
     # -- split send/receive, so a vector of environments can step in parallel --
