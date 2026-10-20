@@ -190,6 +190,12 @@ class PPOConfig:
         # has no effect on the others), with its own clipped ratio; the other heads have their own ratio
         # and see every decision. "all": one joint ratio over all heads on every decision.
         self.aim_mask = "shots"
+        # Gaussian aim stabilisation. aim_lr_scale scales the learning rate of the aim's own parameters (its
+        # rows of the output layer and log_std; the shared trunk keeps the full rate). aim_target_kl: once a
+        # minibatch's aim KL (on shot decisions) passes 1.5x this, the aim loss is switched off for the rest
+        # of the update while the other heads and the value keep training. None: never.
+        self.aim_lr_scale = 1.0
+        self.aim_target_kl = None
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise TypeError(f"unknown PPO setting {k}")
@@ -220,6 +226,12 @@ class Trainer:
     def __init__(self, venv, policy, cfg, seed=1, compile=False, opponent=None):
         self.venv, self.policy, self.cfg = venv, policy, cfg
         self.opt = torch.optim.Adam(policy.parameters(), lr=cfg.lr, eps=1e-5)
+        # the aim's own parameters as (tensor, index) pairs; Adam's step is proportional to the rate, so
+        # scaling these elements' step after opt.step() is the same as giving them their own rate
+        self.aim_params = []
+        if policy.gaussian:
+            rows = slice(sum(DISCRETE), sum(DISCRETE) + 2)
+            self.aim_params = [(policy.pi.weight, rows), (policy.pi.bias, rows), (policy.log_std, slice(None))]
         self._forward = torch.compile(policy.forward) if compile else None
         self.gen = torch.Generator().manual_seed(seed)
         self.opponent = opponent
@@ -343,8 +355,9 @@ class Trainer:
     def masked_aim(self):
         return self.policy.gaussian and self.cfg.aim_mask == "shots"
 
-    def losses(self, batch, mb, adv):
-        """PPO loss terms for minibatch `mb` with advantages `adv`; also used by tests and audits."""
+    def losses(self, batch, mb, adv, aim_weight=1.0):
+        """PPO loss terms for minibatch `mb` with advantages `adv`; also used by tests and audits.
+        aim_weight 0 leaves the masked aim term out of the loss (aim KL early stop)."""
         cfg = self.cfg
         logp, ent, value, aim_ent, aim_logp = self.policy.evaluate(batch["vec"][mb], batch["codes"][mb], batch["actions"][mb], self._forward)
         old = batch["logp"][mb]
@@ -364,7 +377,7 @@ class Trainer:
         pg = -torch.min(ratio * adv, torch.clamp(ratio, 1 - cfg.clip, 1 + cfg.clip) * adv).mean()
         vl = 0.5 * ((value - batch["returns"][mb]) ** 2).mean()
         el = ent.mean()
-        loss = pg + aim_pg + cfg.vf_coef * vl - cfg.ent_coef * el - cfg.aim_ent_coef * aim_ent_term
+        loss = pg + aim_weight * aim_pg + cfg.vf_coef * vl - cfg.ent_coef * el - cfg.aim_ent_coef * aim_ent_term
         out.update(loss=loss, pg=pg, aim_pg=aim_pg, vl=vl, ent=el, aim_ent=aim_ent.mean(), ratio=ratio,
                    log_ratio=torch.log(ratio))
         return out
@@ -373,7 +386,9 @@ class Trainer:
         cfg = self.cfg
         total = batch["adv"].shape[0]
         keys = ("policy_loss", "aim_policy_loss", "value_loss", "entropy", "aim_entropy", "approx_kl", "clip_frac", "grad_norm")
-        stats = {k: [] for k in keys + (("aim_approx_kl", "aim_clip_frac", "aim_mask_frac") if self.masked_aim() else ())}
+        stats = {k: [] for k in keys + (("aim_approx_kl", "aim_clip_frac", "aim_mask_frac", "aim_off") if self.masked_aim() else ())}
+        aim_weight = 1.0
+        scale = cfg.aim_lr_scale if self.policy.gaussian else 1.0
         all_adv = batch["adv"]
         if cfg.adv_norm == "batch":
             all_adv = (all_adv - all_adv.mean()) / (all_adv.std() + 1e-8)
@@ -384,14 +399,21 @@ class Trainer:
                 adv = all_adv[mb]
                 if cfg.adv_norm == "minibatch":
                     adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-                L = self.losses(batch, mb, adv)
+                L = self.losses(batch, mb, adv, aim_weight)
                 loss = L["loss"]
                 self.opt.zero_grad()
                 loss.backward()
                 gn = nn.utils.clip_grad_norm_(self.policy.parameters(), cfg.max_grad_norm)
                 if not (torch.isfinite(loss) and torch.isfinite(gn)):
                     raise FloatingPointError(f"non-finite loss {loss.item()} or grad norm {gn.item()} at update {self.update}")
+                # with the aim loss off its own parameters stay put (Adam's momentum would still move them)
+                step = scale * aim_weight
+                before = [p.detach()[i].clone() for p, i in self.aim_params] if step != 1.0 else None
                 self.opt.step()
+                if before is not None:
+                    with torch.no_grad():
+                        for (p, i), old in zip(self.aim_params, before):
+                            p[i] = old + step * (p[i] - old)
                 with torch.no_grad():
                     ratio, log_ratio = L["ratio"], L["log_ratio"]
                     stats["approx_kl"].append(((ratio - 1) - log_ratio).mean().item())
@@ -403,6 +425,9 @@ class Trainer:
                         stats["aim_approx_kl"].append((m * ((ar - 1) - torch.log(ar))).sum().item() / n.item())
                         stats["aim_clip_frac"].append((m * ((ar - 1).abs() > cfg.clip).float()).sum().item() / n.item())
                         stats["aim_mask_frac"].append(m.mean().item())
+                        stats["aim_off"].append(float(aim_weight == 0.0))
+                        if cfg.aim_target_kl is not None and stats["aim_approx_kl"][-1] > 1.5 * cfg.aim_target_kl:
+                            aim_weight = 0.0
                 stats["policy_loss"].append(L["pg"].item())
                 stats["aim_policy_loss"].append(float(L["aim_pg"].detach()))
                 stats["value_loss"].append(L["vl"].item())

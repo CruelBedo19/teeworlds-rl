@@ -54,20 +54,24 @@ def main():
     ap.add_argument("--compile", action="store_true", help="torch.compile the update (about 1.7x faster here)")
     ap.add_argument("--opponent", help='frozen opponent: "initial" (this run\'s ckpt_0000.pt) or a checkpoint path')
     ap.add_argument("--resume", help="checkpoint to continue from")
+    ap.add_argument("--aim-lr-scale", type=float, default=1.0, help="Gaussian aim: learning rate of the aim's own parameters, relative to the PPO rate")
+    ap.add_argument("--aim-target-kl", type=float, default=None,
+                    help="Gaussian aim: switch the aim loss off for the rest of an update once a minibatch's aim KL passes 1.5x this")
     a = ap.parse_args()
 
     run_dir = a.run_dir or os.path.join("runs", time.strftime("ppo-%Y%m%d-%H%M%S"))
     os.makedirs(run_dir, exist_ok=True)
     torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
-    cfg = PPOConfig(num_envs=a.envs, steps=a.steps)
+    cfg = PPOConfig(num_envs=a.envs, steps=a.steps, aim_lr_scale=a.aim_lr_scale, aim_target_kl=a.aim_target_kl)
     resume = torch.load(a.resume, map_location="cpu", weights_only=False) if a.resume else None
     if resume:
         saved = resume.get("args", {})
         for key in ("map", "envs", "steps", "seed", "aim", "first_stride", "opponent"):
             if key in saved and saved[key] != getattr(a, key):
                 sys.exit(f"--{key} {getattr(a, key)} does not match the checkpoint ({saved[key]})")
-        if resume["config"] != vars(cfg):
+        # settings added after the checkpoint was made count as their defaults
+        if {**vars(PPOConfig()), **resume["config"]} != vars(cfg):
             sys.exit(f"PPO settings differ from the checkpoint: {resume['config']}")
     else:
         with open(os.path.join(run_dir, "config.json"), "w") as f:

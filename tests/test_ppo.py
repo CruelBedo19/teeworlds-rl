@@ -251,6 +251,55 @@ class TestGaussianAim(unittest.TestCase):
         self.assertTrue(all(torch.equal(g0[n], g1[n]) for n in g0))
         self.assertGreater(g0["pi.weight"][-2:].abs().max().item(), 0.0)
 
+    def test_aim_weight_zero_leaves_only_the_aim_gradient_out(self):
+        policy, batch = fake_batch(aim="gaussian")
+        b = dict(batch, aim_mask=torch.ones_like(batch["aim_mask"]))
+        trainer = Trainer(NoEnv(), policy, PPOConfig())
+        grads = []
+        for w in (1.0, 0.0):
+            policy.zero_grad()
+            trainer.losses(b, torch.arange(len(b["adv"])), b["adv"], w)["loss"].backward()
+            grads.append({n: p.grad.clone() for n, p in policy.named_parameters()})
+        k = sum(DISCRETE)
+        self.assertEqual(grads[1]["pi.weight"][k:].abs().max().item(), 0.0)
+        self.assertEqual(grads[1]["log_std"].abs().max().item(), 0.0)
+        self.assertGreater(grads[0]["pi.weight"][k:].abs().max().item(), 0.0)
+        self.assertTrue(torch.equal(grads[0]["pi.weight"][:k], grads[1]["pi.weight"][:k]))
+        self.assertTrue(torch.equal(grads[0]["v.weight"], grads[1]["v.weight"]))
+
+    def trained(self, cfg, seed=0):
+        torch.manual_seed(seed)
+        policy, batch = fake_batch(n=1024, aim="gaussian")
+        batch["aim_mask"] = torch.ones_like(batch["aim_mask"])
+        start = {n: p.detach().clone() for n, p in policy.named_parameters()}
+        stats = Trainer(NoEnv(), policy, cfg).train(batch)
+        return start, {n: p.detach().clone() for n, p in policy.named_parameters()}, stats
+
+    def test_aim_lr_scale_scales_only_the_aim_step(self):
+        base = dict(epochs=1, minibatch=1024)
+        s0, full, _ = self.trained(PPOConfig(**base))
+        s1, scaled, _ = self.trained(PPOConfig(aim_lr_scale=0.25, **base))
+        k = sum(DISCRETE)
+        # one step: the aim rows and log_std move a quarter as far, everything else exactly as far
+        for n, i in (("pi.weight", slice(k, None)), ("pi.bias", slice(k, None)), ("log_std", slice(None))):
+            self.assertTrue(torch.allclose(scaled[n][i] - s1[n][i], 0.25 * (full[n][i] - s0[n][i]), atol=1e-7), n)
+        self.assertTrue(torch.equal(scaled["pi.weight"][:k], full["pi.weight"][:k]))
+        self.assertTrue(torch.equal(scaled["trunk.0.weight"], full["trunk.0.weight"]))
+
+    def test_aim_kl_early_stop(self):
+        k = sum(DISCRETE)
+        base = dict(epochs=8, minibatch=256, lr=3e-3)
+        _, _, free = self.trained(PPOConfig(**base))
+        self.assertEqual(free["aim_off"], 0.0)
+        start, end, stats = self.trained(PPOConfig(aim_target_kl=1e-6, **base))
+        # the first minibatch measures zero KL and trains the aim; it is off for (almost) all the rest
+        self.assertGreater(stats["aim_off"], 0.8)
+        self.assertLess(stats["aim_approx_kl"], free["aim_approx_kl"])
+        # the other heads keep training
+        self.assertFalse(torch.equal(start["pi.weight"][:k], end["pi.weight"][:k]))
+        _, frozen, _ = self.trained(PPOConfig(aim_target_kl=1e-6, aim_lr_scale=0.0, **base))
+        self.assertTrue(torch.equal(frozen["log_std"], start["log_std"]))
+
     def test_checkpoint_keeps_the_aim_kind(self):
         policy, batch = fake_batch(aim="gaussian")
         trainer = Trainer(NoEnv(), policy, PPOConfig(epochs=1, minibatch=128))
