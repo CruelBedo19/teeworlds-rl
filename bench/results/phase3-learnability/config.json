@@ -1,0 +1,35 @@
+{
+ "args": {
+  "server_dir": "../teeworlds-0.7.5/build-release",
+  "run_dir": "runs/learn-gauss-vs-frozen",
+  "map": "lms1",
+  "envs": 32,
+  "steps": 128,
+  "updates": 489,
+  "max_minutes": 60.0,
+  "checkpoint_every": 50,
+  "checkpoint_steps": 250000,
+  "aim": "gaussian",
+  "first_stride": 2,
+  "seed": 1,
+  "threads": 6,
+  "compile": true,
+  "opponent": "initial",
+  "resume": null
+ },
+ "ppo": {
+  "num_envs": 32,
+  "steps": 128,
+  "gamma": 0.99,
+  "lam": 0.95,
+  "epochs": 4,
+  "minibatch": 512,
+  "lr": 0.0003,
+  "clip": 0.2,
+  "ent_coef": 0.01,
+  "aim_ent_coef": 0.0,
+  "vf_coef": 0.5,
+  "max_grad_norm": 0.5,
+  "adv_norm": "batch"
+ }
+}
