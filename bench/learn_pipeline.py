@@ -127,16 +127,44 @@ def matchup(report):
             "encounters": c["encounters"], "visible_frac": c["opp_visible_frac"], "opp_hit_rate": o["hit_rate"]}
 
 
+def summarize(run_dir, targets, rows, state):
+    base_path = os.path.join(run_dir, "eval", "ckpt_0000.json")
+    base = json.load(open(base_path)) if os.path.exists(base_path) else None
+    points = []
+    for t in targets:
+        p = os.path.join(run_dir, "eval", f"at_{t}.json")
+        if not os.path.exists(p):
+            continue
+        rep = json.load(open(p))
+        s = steps_of(rep["current"])
+        points.append({"target": t, "checkpoint": os.path.basename(rep["current"]), "agent_steps": s, "vs_initial": matchup(rep),
+                       "vs_random": rep["vs"]["random"]["current"], "self": rep["self"], "training": window_stats(rows, s)})
+    summary = {"pipeline": state, "baseline_ckpt_0000": base and {"self": base["self"], "vs_random": base["vs"]["random"]["current"]},
+               "points": points}
+    if points and base:
+        summary["criteria_at_last_point"] = criteria(points, base["self"]["hit_rate"])
+    with open(os.path.join(run_dir, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=1)
+    print(json.dumps(summary.get("criteria_at_last_point"), indent=1))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--server-dir", default="../teeworlds-0.7.5/build-release")
     ap.add_argument("--eval-at", required=True, help="comma-separated agent step counts")
     ap.add_argument("--poll", type=float, default=30)
+    ap.add_argument("--summarize", action="store_true", help="only rebuild summary.json from a finished run's files")
     ap.add_argument("train_args", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     os.chdir(ROOT)
     targets = [int(x) for x in a.eval_at.split(",")]
+    if a.summarize:
+        with open(os.path.join(a.run_dir, "metrics.jsonl")) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        with open(os.path.join(a.run_dir, "pipeline.json")) as f:
+            summarize(a.run_dir, targets, rows, json.load(f))
+        return
     train_args = [x for x in a.train_args if x != "--"]
     os.makedirs(a.run_dir, exist_ok=True)
     state = {"rules": RULES, "train_args": train_args, "eval_at": targets, "started": time.strftime("%F %T"), "stop_reason": None}
@@ -199,7 +227,8 @@ def main():
                                                     "finished": time.strftime("%F %T")}
             save()
             ev = None
-        if ev is None and queue:
+        # (ckpt_0000.pt only exists once the trainer has started)
+        if ev is None and queue and (queue[0] != "ckpt_0000" or os.path.exists(os.path.join(a.run_dir, "ckpt_0000.pt"))):
             ev = start_eval(queue.pop(0))
         if not running and ev is None and not queue:
             break
@@ -213,26 +242,7 @@ def main():
     state["not_reached"] = pending
     save()
 
-    base_path = os.path.join(a.run_dir, "eval", "ckpt_0000.json")
-    base = json.load(open(base_path)) if os.path.exists(base_path) else None
-    points = []
-    for t in targets:
-        p = os.path.join(a.run_dir, "eval", f"at_{t}.json")
-        if not os.path.exists(p):
-            continue
-        rep = json.load(open(p))
-        ck = os.path.join(a.run_dir, done[f"at_{t}"])
-        s = steps_of(ck)
-        points.append({"target": t, "checkpoint": done[f"at_{t}"], "agent_steps": s, "vs_initial": matchup(rep),
-                       "vs_random": rep["vs"]["random"]["current"], "self": rep["self"], "training": window_stats(rows, s)})
-    summary = {"pipeline": state, "baseline_ckpt_0000": base and {"self": base["self"], "vs_random": base["vs"]["random"]["current"]},
-               "points": points}
-    if points and base:
-        summary["criteria_at_last_point"] = criteria(points, base["self"]["hit_rate"])
-    with open(os.path.join(a.run_dir, "summary.json"), "w") as f:
-        json.dump(summary, f, indent=1)
-    print(json.dumps(summary.get("criteria_at_last_point"), indent=1))
-
+    summarize(a.run_dir, targets, rows, state)
 
 if __name__ == "__main__":
     main()

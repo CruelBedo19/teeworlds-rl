@@ -14,6 +14,9 @@ resumes) or after --max-minutes of this invocation, whichever comes first.
 own ckpt_0000.pt (the untrained random-weight network), or give a checkpoint path. The opponent is
 never updated and only the learner's samples are trained on and counted as agent steps.
 
+--init-from starts a new run from another run's weights (e.g. self-play from a frozen-opponent run);
+its ckpt_0000.pt is then those weights, not a random network.
+
 --resume continues from a checkpoint: weights, optimiser, update and step counters, random
 streams and the env seed stream. Episodes that were running when it was saved are not resumed;
 the environments start fresh episodes, so a resumed run is not bit-identical to an uninterrupted one.
@@ -54,6 +57,7 @@ def main():
     ap.add_argument("--compile", action="store_true", help="torch.compile the update (about 1.7x faster here)")
     ap.add_argument("--opponent", help='frozen opponent: "initial" (this run\'s ckpt_0000.pt) or a checkpoint path')
     ap.add_argument("--resume", help="checkpoint to continue from")
+    ap.add_argument("--init-from", help="a new run starts from this checkpoint's weights (fresh optimiser and counters)")
     ap.add_argument("--aim-lr-scale", type=float, default=1.0, help="Gaussian aim: learning rate of the aim's own parameters, relative to the PPO rate")
     ap.add_argument("--aim-target-kl", type=float, default=None,
                     help="Gaussian aim: switch the aim loss off for the rest of an update once a minibatch's aim KL passes 1.5x this")
@@ -79,6 +83,11 @@ def main():
     extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed", "aim", "first_stride", "opponent")}}
 
     policy = Policy(aim=a.aim, first_stride=a.first_stride)
+    if a.init_from and not resume:
+        source, _ = load_policy(a.init_from)
+        if source.spec != policy.spec:
+            sys.exit(f"--init-from network {source.spec} differs from this run's {policy.spec}")
+        policy.load_state_dict(source.state_dict())
     start = time.time()
     initial = os.path.join(run_dir, "ckpt_0000.pt")
     if a.opponent and not resume and a.opponent != "initial":
