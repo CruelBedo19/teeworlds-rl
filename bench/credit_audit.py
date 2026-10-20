@@ -377,8 +377,7 @@ def signal_report(rec, sp, hits, batches, trainer, policy, cfg):
     grid = np.stack([s["grid"] for s in rec.steps])
     idx = np.nonzero(learner & vis)
     with torch.no_grad():
-        out_t, _ = policy(torch.from_numpy(vec[idx]), torch.from_numpy(grid[idx]))
-    mu = out_t[:, -2:].numpy().astype(float)
+        mu = policy.aim_mean(torch.from_numpy(vec[idx]), torch.from_numpy(grid[idx])).numpy().astype(float)
     std = policy._std().detach().numpy().astype(float)
     aim_sample = np.full(acts.shape[:3] + (2,), np.nan)
     for batch in batches:

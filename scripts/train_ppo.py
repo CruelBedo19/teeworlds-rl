@@ -51,6 +51,7 @@ def main():
     ap.add_argument("--checkpoint-every", type=int, default=50, help="updates between checkpoints")
     ap.add_argument("--checkpoint-steps", type=int, default=0, help="agent steps between checkpoints; replaces --checkpoint-every")
     ap.add_argument("--aim", choices=("categorical", "gaussian"), default="categorical")
+    ap.add_argument("--aim-mean", choices=("raw", "bounded"), default="raw", help="Gaussian aim: mean as is, or mu / sqrt(1 + |mu|^2)")
     ap.add_argument("--first-stride", type=int, default=2, help="stride of the first convolution (1 = the first network)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--threads", type=int, default=6)
@@ -80,9 +81,9 @@ def main():
     else:
         with open(os.path.join(run_dir, "config.json"), "w") as f:
             json.dump({"args": vars(a), "ppo": vars(cfg)}, f, indent=1)
-    extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed", "aim", "first_stride", "opponent")}}
+    extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed", "aim", "first_stride", "opponent", "aim_mean")}}
 
-    policy = Policy(aim=a.aim, first_stride=a.first_stride)
+    policy = Policy(aim=a.aim, first_stride=a.first_stride, **({"aim_mean": a.aim_mean} if a.aim == "gaussian" else {}))
     if a.init_from and not resume:
         source, _ = load_policy(a.init_from)
         if source.spec != policy.spec:

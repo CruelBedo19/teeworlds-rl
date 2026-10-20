@@ -179,6 +179,38 @@ class TestGaussianAim(unittest.TestCase):
                         "policy": policy.state_dict(), "update": 0, "agent_steps": 0}, path)
             loaded, _ = load_policy(path)
         self.assertEqual(loaded.spec["log_std_max"], 1.0)
+        self.assertEqual(loaded.spec["aim_mean"], "raw")
+
+    def test_bounded_aim_mean(self):
+        torch.manual_seed(0)
+        raw, batch = fake_batch(aim="gaussian")
+        bounded = Policy(aim="gaussian", aim_mean="bounded")
+        bounded.load_state_dict(raw.state_dict())
+        # the same direction; near zero (as at the start) the same mean
+        m_raw, m_b = raw.aim_mean(batch["vec"], batch["codes"]), bounded.aim_mean(batch["vec"], batch["codes"])
+        self.assertTrue(torch.allclose(m_raw, m_b, rtol=1e-2, atol=1e-6))
+        # a long raw mean is held under length 1, direction kept
+        with torch.no_grad():
+            raw.pi.bias[-2:] = torch.tensor([30.0, -40.0])
+            bounded.pi.bias[-2:] = torch.tensor([30.0, -40.0])
+        m_raw, m_b = raw.aim_mean(batch["vec"], batch["codes"]), bounded.aim_mean(batch["vec"], batch["codes"])
+        self.assertGreater(m_raw.norm(dim=1).min().item(), 10)
+        self.assertLess(m_b.norm(dim=1).max().item(), 1.0)
+        cos = (m_raw * m_b).sum(1) / (m_raw.norm(dim=1) * m_b.norm(dim=1))
+        self.assertGreater(cos.min().item(), 1 - 1e-6)
+        # sampling and the loss use the bounded mean
+        g = torch.Generator().manual_seed(1)
+        with torch.no_grad():
+            actions, logp, _, _, aim_logp = bounded.act(batch["vec"], batch["codes"], g)
+        self.assertLess(actions[:, 4:].norm(dim=1).median().item(), 2.0)
+        self.assertTrue(torch.allclose(bounded.evaluate(batch["vec"], batch["codes"], actions)[4], aim_logp, atol=1e-5))
+        with tempfile.TemporaryDirectory() as d:
+            trainer = Trainer(NoEnv(), bounded, PPOConfig(epochs=1, minibatch=128))
+            path = os.path.join(d, "b.pt")
+            save_checkpoint(path, trainer)
+            loaded, _ = load_policy(path)
+        self.assertEqual(loaded.spec["aim_mean"], "bounded")
+        self.assertTrue(torch.equal(loaded.aim_mean(batch["vec"], batch["codes"]), m_b))
 
     def test_initial_aim_has_no_preferred_direction(self):
         policy, batch = fake_batch(n=4096, aim="gaussian")

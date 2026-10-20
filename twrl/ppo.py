@@ -70,13 +70,16 @@ class Policy(nn.Module):
     index for the categorical aim, an x, y vector for the Gaussian one). first_stride=2 halves the
     grid in the first convolution, which was most of the network's cost at full resolution."""
 
-    def __init__(self, hidden=256, aim="categorical", first_stride=2, log_std_max=LOG_STD_MAX):
+    def __init__(self, hidden=256, aim="categorical", first_stride=2, log_std_max=LOG_STD_MAX, aim_mean="raw"):
         super().__init__()
         if aim not in ("categorical", "gaussian"):
             raise ValueError("aim must be 'categorical' or 'gaussian'")
         self.spec = {"hidden": hidden, "aim": aim, "first_stride": first_stride}
         if aim == "gaussian":
+            if aim_mean not in ("raw", "bounded"):
+                raise ValueError("aim_mean must be 'raw' or 'bounded'")
             self.spec["log_std_max"] = log_std_max
+            self.spec["aim_mean"] = aim_mean
         self.gaussian = aim == "gaussian"
         self.action_dim = len(DISCRETE) + (2 if self.gaussian else 1)
         g = math.sqrt(2)
@@ -111,9 +114,22 @@ class Policy(nn.Module):
         return self.log_std.clamp(LOG_STD_MIN, self.spec["log_std_max"]).exp()
 
     def _split(self, out):
+        """Discrete heads' logits and the aim's logits (categorical) or mean (Gaussian).
+
+        Only the aim's direction reaches the game. With a raw mean nothing holds its length, which
+        grew to several times the std in the first 5M run and made the aim nearly deterministic
+        whatever log_std said; "bounded" maps the mean to mu / sqrt(1 + |mu|^2), the same near zero
+        but never longer than 1, so the noise relative to the mean stays what log_std sets."""
         sizes = DISCRETE + ((2,) if self.gaussian else (AIM_BINS,))
         chunks = torch.split(out, sizes, dim=-1)
-        return chunks[:len(DISCRETE)], chunks[-1]
+        aim = chunks[-1]
+        if self.gaussian and self.spec["aim_mean"] == "bounded":
+            aim = aim * torch.rsqrt(1 + (aim * aim).sum(-1, keepdim=True))
+        return chunks[:len(DISCRETE)], aim
+
+    def aim_mean(self, vec, codes):
+        """The Gaussian aim's mean as the distribution uses it (B, 2)."""
+        return self._split(self(vec, codes)[0])[1]
 
     def act(self, vec, codes, generator=None):
         """Sample actions; returns actions (B, action_dim) float, log prob (B,), value (B,), entropy (B,) and
@@ -484,10 +500,11 @@ def save_checkpoint(path, trainer, extra=None):
 def model_spec(state):
     """The Policy settings a checkpoint was made with; checkpoints before format 3 used the first
     network (categorical aim, stride-1 first convolution). Gaussian checkpoints made before log_std_max
-    existed keep the cap they were trained with (1.0)."""
+    existed keep the cap they were trained with (1.0), and those made before aim_mean the raw mean."""
     spec = dict(state.get("model", {"hidden": 256, "aim": "categorical", "first_stride": 1}))
     if spec["aim"] == "gaussian":
         spec.setdefault("log_std_max", 1.0)
+        spec.setdefault("aim_mean", "raw")
     return spec
 
 
