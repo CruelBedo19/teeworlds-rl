@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from twrl import VecTeeworldsEnv  # noqa: E402
 from twrl import protocol as P  # noqa: E402
-from twrl.ppo import AIM_BINS, HEADS, flatten_agents, load_policy, to_env_actions  # noqa: E402
+from twrl.ppo import HEADS, flatten_agents, load_policy, to_env_actions  # noqa: E402
 
 V = P.VEC_INDEX
 EV = {n: i for i, n in enumerate(P.EVENT_NAMES)}
@@ -33,11 +33,11 @@ class Actor:
         self.gen = torch.Generator().manual_seed(seed)
         self.policy = None if spec == "random" else load_policy(spec)[0]
 
-    def heads(self, vec, codes):
+    def env_actions(self, vec, codes):
         if self.policy is None:
-            return torch.stack([torch.randint(0, n, (vec.shape[0],), generator=self.gen) for n in HEADS], dim=-1)
+            return to_env_actions(torch.stack([torch.randint(0, n, (vec.shape[0],), generator=self.gen) for n in HEADS], dim=-1).numpy())
         with torch.no_grad():
-            return self.policy.act(vec, codes, self.gen)[0]
+            return self.policy.env_actions(self.policy.act(vec, codes, self.gen)[0].numpy())
 
 
 def play(server_dir, map_name, actors, episodes, envs, seed, episode_ticks):
@@ -54,9 +54,9 @@ def play(server_dir, map_name, actors, episodes, envs, seed, episode_ticks):
             while True:
                 vec, codes = flatten_agents(obs)
                 vec, codes = vec.view(envs, 2, -1), codes.view(envs, 2, P.GRID_HEIGHT, P.GRID_WIDTH)
-                heads = torch.stack([actors[i].heads(vec[:, i], codes[:, i]) for i in range(2)], dim=1).numpy()
+                actions = np.stack([actors[i].env_actions(vec[:, i], codes[:, i]) for i in range(2)], axis=1)
                 obs_before = obs
-                obs, _, _, truncated, infos = venv.step(to_env_actions(heads))
+                obs, _, _, truncated, infos = venv.step(actions)
                 ag = infos["agents"]
                 ev = infos["events"]
                 if truncated.all():
@@ -70,9 +70,9 @@ def play(server_dir, map_name, actors, episodes, envs, seed, episode_ticks):
                     v0 = obs_before["vec"][:, i]
                     alive = v0[:, V["alive"]] > 0
                     m["alive_steps"][i] += alive.sum()
-                    m["hook"][i] += (heads[:, i, 3] * alive).sum()
-                    m["jump"][i] += (heads[:, i, 1] * alive).sum()
-                    m["fire"][i] += (heads[:, i, 2] * alive).sum()
+                    m["hook"][i] += (actions[:, i, 3] * alive).sum()
+                    m["jump"][i] += (actions[:, i, 1] * alive).sum()
+                    m["fire"][i] += (actions[:, i, 2] * alive).sum()
                     m["grounded"][i] += v0[:, V["grounded"]].sum()
                     m["speed"][i] += np.abs(v0[:, V["vel_x"]] * 32).sum()
                     vis = v0[:, V["opp_visible"]] > 0
@@ -81,8 +81,8 @@ def play(server_dir, map_name, actors, episodes, envs, seed, episode_ticks):
                     d = np.stack([v0[:, V["opp_dx"]] * P.VIEW_HALF_WIDTH, v0[:, V["opp_dy"]] * P.VIEW_HALF_HEIGHT], 1)
                     dist = np.hypot(d[:, 0], d[:, 1])
                     m["opp_dist"][i] += dist[vis].sum()
-                    angle = 2 * math.pi * heads[:, i, 4] / AIM_BINS
-                    aim = np.stack([np.cos(angle), np.sin(angle)], 1)
+                    aim = actions[:, i, 4:6].astype(np.float64)
+                    aim /= np.maximum(np.hypot(aim[:, 0], aim[:, 1]), 1e-6)[:, None]
                     cos = (aim * d).sum(1) / np.maximum(dist, 1e-6)
                     m["aim_cos"][i] += cos[vis].sum()
                     if ag_now is not None and prev is not None:

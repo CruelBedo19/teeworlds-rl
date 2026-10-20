@@ -5,6 +5,7 @@
 
 import glob
 import json
+import math
 import os
 import signal
 import subprocess
@@ -20,20 +21,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from twrl import VecTeeworldsEnv  # noqa: E402
 from twrl import protocol as P  # noqa: E402
-from twrl.ppo import AIM_BINS, HEADS, Policy, PPOConfig, Trainer, load_policy, save_checkpoint, to_env_actions  # noqa: E402
+from twrl.ppo import (AIM_BINS, DISCRETE, HEADS, Policy, PPOConfig, Trainer, gaussian_env_actions, load_policy,  # noqa: E402
+                      save_checkpoint, to_env_actions)
 
 SERVER_DIR = os.environ.get("TWRL_SERVER_DIR")
 
 
-def fake_batch(n=256, seed=0):
+def fake_batch(n=256, seed=0, **policy_kw):
     g = torch.Generator().manual_seed(seed)
-    policy = Policy()
+    policy = Policy(**policy_kw)
     vec = torch.randn(n, P.VEC_DIM, generator=g)
     codes = torch.randint(0, 8, (n, P.GRID_HEIGHT, P.GRID_WIDTH), generator=g, dtype=torch.uint8) & 7
     with torch.no_grad():
-        heads, logp, values, _ = policy.act(vec, codes, g)
+        actions, logp, values, _ = policy.act(vec, codes, g)
     adv = torch.randn(n, generator=g)
-    return policy, {"vec": vec, "codes": codes, "heads": heads, "logp": logp, "values": values, "adv": adv,
+    return policy, {"vec": vec, "codes": codes, "actions": actions, "logp": logp, "values": values, "adv": adv,
                     "returns": adv + values}
 
 
@@ -50,7 +52,7 @@ class TestPolicy(unittest.TestCase):
         logits, value = policy(batch["vec"], batch["codes"])
         self.assertEqual(logits.shape, (256, sum(HEADS)))
         self.assertEqual(value.shape, (256,))
-        _, ent, _ = policy.evaluate(batch["vec"], batch["codes"], batch["heads"])
+        _, ent, _ = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
         # the actor head starts almost uniform: entropy close to the maximum
         self.assertAlmostEqual(ent.mean().item(), sum(np.log(HEADS)), delta=0.01)
 
@@ -104,25 +106,99 @@ class TestPolicy(unittest.TestCase):
                 self.assertIn(key, state)
 
     def test_compiled_update_matches_eager(self):
+        for aim in ("categorical", "gaussian"):
+            torch.manual_seed(0)
+            policy, batch = fake_batch(aim=aim)
+            twin = Policy(aim=aim)
+            twin.load_state_dict(policy.state_dict())
+            eager = Trainer(NoEnv(), policy, PPOConfig(epochs=1, minibatch=256), seed=3)
+            compiled = Trainer(NoEnv(), twin, PPOConfig(epochs=1, minibatch=256), seed=3, compile=True)
+            s1, s2 = eager.train(batch), compiled.train(batch)
+            for k in s1:
+                self.assertAlmostEqual(s1[k], s2[k], places=4, msg=(aim, k))
+            for a, b in zip(policy.parameters(), twin.parameters()):
+                self.assertTrue(torch.allclose(a, b, atol=1e-5), aim)
+
+    def test_first_stride(self):
+        for stride, cells in ((1, 7 * 9), (2, 4 * 5)):
+            policy = Policy(first_stride=stride)
+            self.assertEqual(policy.grid_fc[0].in_features, 32 * cells)
+            _, batch = fake_batch(n=8)
+            logits, value = policy(batch["vec"], batch["codes"])
+            self.assertEqual(logits.shape, (8, sum(HEADS)))
+
+    def test_old_checkpoints_load_as_the_first_network(self):
+        policy = Policy(first_stride=1)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "old.pt")
+            torch.save({"format": 2, "policy": policy.state_dict(), "update": 0, "agent_steps": 0}, path)
+            loaded, _ = load_policy(path)
+        self.assertEqual(loaded.spec, {"hidden": 256, "aim": "categorical", "first_stride": 1})
+        for a, b in zip(policy.state_dict().values(), loaded.state_dict().values()):
+            self.assertTrue(torch.equal(a, b))
+
+
+class TestGaussianAim(unittest.TestCase):
+    def test_act_and_evaluate_agree(self):
+        policy, batch = fake_batch(aim="gaussian")
+        self.assertEqual(batch["actions"].shape, (256, len(DISCRETE) + 2))
+        logp, ent, value = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
+        self.assertTrue(torch.allclose(logp, batch["logp"], atol=1e-5))
+        self.assertTrue(torch.allclose(value, batch["values"]))
+        # discrete heads near uniform, aim std exp(-0.5) per axis at the start
+        gauss = 2 * (0.5 * math.log(2 * math.pi * math.e) - 0.5)
+        self.assertAlmostEqual(ent.mean().item(), sum(np.log(DISCRETE)) + gauss, delta=0.01)
+
+    def test_initial_aim_has_no_preferred_direction(self):
+        policy, batch = fake_batch(n=4096, aim="gaussian")
+        aim = batch["actions"][:, 4:].numpy()
+        angle = np.arctan2(aim[:, 1], aim[:, 0])
+        counts, _ = np.histogram(angle, bins=8, range=(-np.pi, np.pi))
+        self.assertLess(counts.max() / counts.min(), 1.3)
+
+    def test_env_action_mapping(self):
+        actions = np.array([[0, 0, 0, 0, 3.0, 4.0], [2, 1, 1, 1, -0.001, 0.0], [1, 0, 1, 0, 0.0, 0.0]])
+        out = gaussian_env_actions(actions)
+        np.testing.assert_array_equal(out[:, :4], [[-1, 0, 0, 0], [1, 1, 1, 1], [0, 0, 1, 0]])
+        np.testing.assert_array_equal(out[:, 4:], [[154, 205], [-256, 0], [256, 0]])  # a zero vector aims right
+
+    def test_update_moves_aim_towards_rewarded_direction(self):
         torch.manual_seed(0)
-        policy, batch = fake_batch()
-        twin = Policy()
-        twin.load_state_dict(policy.state_dict())
-        eager = Trainer(NoEnv(), policy, PPOConfig(epochs=1, minibatch=256), seed=3)
-        compiled = Trainer(NoEnv(), twin, PPOConfig(epochs=1, minibatch=256), seed=3, compile=True)
-        s1, s2 = eager.train(batch), compiled.train(batch)
-        for k in s1:
-            self.assertAlmostEqual(s1[k], s2[k], places=4, msg=k)
-        for a, b in zip(policy.parameters(), twin.parameters()):
-            self.assertTrue(torch.allclose(a, b, atol=1e-5))
+        policy, batch = fake_batch(n=2048, aim="gaussian")
+        aim = batch["actions"][:, 4:]
+        batch["adv"] = aim[:, 0] / aim.norm(dim=1)  # reward aiming to the right
+        trainer = Trainer(NoEnv(), policy, PPOConfig(epochs=4, minibatch=256, lr=1e-3))
+        before = policy(batch["vec"], batch["codes"])[0][:, -2].mean().item()
+        stats = trainer.train(batch)
+        self.assertTrue(all(np.isfinite(v) for v in stats.values()), stats)
+        after = policy(batch["vec"], batch["codes"])[0][:, -2].mean().item()
+        self.assertGreater(after, before + 0.01)
+
+    def test_checkpoint_keeps_the_aim_kind(self):
+        policy, batch = fake_batch(aim="gaussian")
+        trainer = Trainer(NoEnv(), policy, PPOConfig(epochs=1, minibatch=128))
+        trainer.train(batch)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "ckpt.pt")
+            save_checkpoint(path, trainer)
+            loaded, state = load_policy(path)
+            self.assertEqual(loaded.spec["aim"], "gaussian")
+            self.assertTrue(torch.equal(loaded.log_std, policy.log_std))
+            with self.assertRaises(ValueError):
+                Trainer(NoEnv(), Policy(), PPOConfig()).load_state_dict(state)
 
 
 @unittest.skipUnless(SERVER_DIR, "set TWRL_SERVER_DIR to a build directory with teeworlds_srv")
 class TestTrainingLoop(unittest.TestCase):
     def test_collect_and_update_on_real_envs(self):
+        for aim in ("categorical", "gaussian"):
+            with self.subTest(aim=aim):
+                self.collect_and_update(aim)
+
+    def collect_and_update(self, aim):
         torch.manual_seed(0)
         with VecTeeworldsEnv(2, SERVER_DIR, seed=3, map="lms1", grid_format="codes", episode_ticks=100) as venv:
-            trainer = Trainer(venv, Policy(), PPOConfig(num_envs=2, steps=64, epochs=1, minibatch=128))
+            trainer = Trainer(venv, Policy(aim=aim), PPOConfig(num_envs=2, steps=64, epochs=1, minibatch=128))
             for _ in range(2):
                 batch = trainer.collect()
                 self.assertEqual(batch["vec"].shape, (64 * 4, P.VEC_DIM))

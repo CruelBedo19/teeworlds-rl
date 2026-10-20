@@ -19,11 +19,13 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from twrl import VecTeeworldsEnv  # noqa: E402
-from twrl.ppo import HEADS, PPOConfig, Trainer, load_policy  # noqa: E402
+from twrl.ppo import HEADS, PPOConfig, Trainer, load_policy, to_env_actions  # noqa: E402
 
 
 class UniformPolicy(torch.nn.Module):
     """Uniform over the PPO heads with a zero critic, so GAE is just discounted reward."""
+
+    action_dim = len(HEADS)
 
     def __init__(self):
         super().__init__()
@@ -34,7 +36,10 @@ class UniformPolicy(torch.nn.Module):
 
     def act(self, vec, codes, generator=None):
         heads = torch.stack([torch.randint(0, n, (vec.shape[0],), generator=generator) for n in HEADS], dim=-1)
-        return heads, torch.zeros(vec.shape[0]), torch.zeros(vec.shape[0]), torch.zeros(vec.shape[0])
+        return heads.float(), torch.zeros(vec.shape[0]), torch.zeros(vec.shape[0]), torch.zeros(vec.shape[0])
+
+    def env_actions(self, actions):
+        return to_env_actions(np.asarray(actions).astype(np.int64))
 
 
 def measure(server_dir, spec, envs, steps, rollouts, seed):

@@ -10,6 +10,7 @@ Matchups for a checkpoint `current`:
     random    current vs uniform random over the action heads, both sides
     initial   current vs ckpt_0000 (the untrained random-weight policy), both sides
     previous  current vs the checkpoint before it, both sides
+    versus    optional: current vs any other checkpoint (e.g. the other arm of an A/B run), both sides
 """
 
 import math
@@ -49,10 +50,10 @@ class Actor:
     def __call__(self, vec, codes):
         if self.policy is None:
             heads = torch.stack([torch.randint(0, n, (vec.shape[0],), generator=self.gen) for n in HEADS], dim=-1)
-        else:
-            with torch.no_grad():
-                heads = self.policy.act(vec, codes, self.gen)[0]
-        return to_env_actions(heads.numpy())
+            return to_env_actions(heads.numpy())
+        with torch.no_grad():
+            actions = self.policy.act(vec, codes, self.gen)[0]
+        return self.policy.env_actions(actions.numpy())
 
 
 def play(server_dir, spec0, spec1):
@@ -126,16 +127,16 @@ def both_sides(server_dir, a, b):
     return side(merged_a, 0), side(merged_b, 0)
 
 
-def evaluate(server_dir, current, initial=None, previous=None):
+def evaluate(server_dir, current, initial=None, previous=None, versus=None):
     torch.set_num_threads(EVAL_THREADS)
     report = {"protocol": {"seed": EVAL_SEED, "envs": EVAL_ENVS, "rounds": EVAL_ROUNDS, "map": EVAL_MAP,
                            "episode_ticks": EVAL_EPISODE_TICKS, "threads": EVAL_THREADS, "seeds": seed_set()},
-              "current": current, "initial": initial, "previous": previous}
+              "current": current, "initial": initial, "previous": previous, "versus": versus}
     m = play(server_dir, current, current)
     merged = {k: np.array([m[k].sum()]) for k in m}
     report["self"] = side(merged, 0)
     report["vs"] = {}
-    for name, opp in (("random", "random"), ("initial", initial), ("previous", previous)):
+    for name, opp in (("random", "random"), ("initial", initial), ("previous", previous), ("versus", versus)):
         if opp is None:
             continue
         me, them = both_sides(server_dir, current, opp)

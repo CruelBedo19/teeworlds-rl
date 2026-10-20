@@ -45,8 +45,8 @@ class CheckpointFollower:
 
     def __init__(self, run_dir, refresh_seconds, seed):
         import torch  # only this mode needs torch
-        from twrl.ppo import load_policy, to_env_actions
-        self.torch, self.load_policy, self.to_env_actions = torch, load_policy, to_env_actions
+        from twrl.ppo import load_policy
+        self.torch, self.load_policy = torch, load_policy
         torch.set_num_threads(1)  # 25 decisions/s; leave the cores to the training
         self.run_dir = run_dir
         self.refresh_seconds = refresh_seconds
@@ -73,16 +73,16 @@ class CheckpointFollower:
             return
         policy, state = self.load_policy(path)
         self.policy, self.current = policy, key
-        print("policy: %s (update %d, %d agent steps)" % (os.path.basename(path), state["update"], state["agent_steps"]),
-              flush=True)
+        print("policy: %s (update %d, %d agent steps, %s aim)" % (os.path.basename(path), state["update"],
+              state["agent_steps"], policy.spec["aim"]), flush=True)
 
     def __call__(self, agents):
         self.refresh()
         vec = self.torch.from_numpy(agents["vec"].copy())
         codes = self.torch.from_numpy(agents["grid"][:, :P.GRID_CELLS].reshape(P.NUM_AGENTS, P.GRID_HEIGHT, P.GRID_WIDTH).copy())
         with self.torch.no_grad():
-            heads = self.policy.act(vec, codes, self.gen)[0]
-        return self.to_env_actions(heads.numpy())
+            actions = self.policy.act(vec, codes, self.gen)[0]
+        return self.policy.env_actions(actions.numpy())
 
 
 def play(env, args, episodes):

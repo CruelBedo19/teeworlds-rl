@@ -5,7 +5,7 @@
 
 Compares against uniform random, the run's ckpt_0000.pt and the checkpoint before this one, each
 with sides swapped, and writes runs/x/eval/<checkpoint>.json. --previous overrides the automatic
-choice of the previous checkpoint.
+choice of the previous checkpoint; --versus adds a head-to-head against any other checkpoint.
 """
 
 import argparse
@@ -38,16 +38,19 @@ def main():
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--previous")
+    ap.add_argument("--versus", help="another checkpoint to play head-to-head, e.g. the other arm of an A/B run")
+    ap.add_argument("--out-name", help="report file name inside <run-dir>/eval (default: the checkpoint name)")
     a = ap.parse_args()
     current = os.path.join(a.run_dir, a.checkpoint)
     initial = os.path.join(a.run_dir, "ckpt_0000.pt")
     previous = a.previous or previous_checkpoint(a.run_dir, current)
     if previous and os.path.abspath(previous) in (os.path.abspath(current), os.path.abspath(initial)):
         previous = None
-    report = round_floats(evaluate(a.server_dir, current, initial if os.path.abspath(initial) != os.path.abspath(current) else None, previous))
+    report = round_floats(evaluate(a.server_dir, current, initial if os.path.abspath(initial) != os.path.abspath(current) else None, previous,
+                                  a.versus))
     out_dir = os.path.join(a.run_dir, "eval")
     os.makedirs(out_dir, exist_ok=True)
-    out = os.path.join(out_dir, os.path.splitext(a.checkpoint)[0] + ".json")
+    out = os.path.join(out_dir, (a.out_name or os.path.splitext(a.checkpoint)[0]) + ".json")
     with open(out, "w") as f:
         json.dump(report, f, indent=1)
     s = report["self"]

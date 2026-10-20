@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Short, bounded PPO self-play run from random weights. Not a long training job.
+"""Bounded PPO self-play run from random weights.
 
     train_ppo.py --server-dir ../teeworlds-0.7.5/build-release --updates 200 --max-minutes 20
+    train_ppo.py --server-dir ... --aim gaussian --envs 16 --compile --checkpoint-steps 250000 --updates 1221
     train_ppo.py --server-dir ... --run-dir runs/x --resume runs/x/ckpt_final.pt --updates 400
 
 Writes runs/<name>/metrics.jsonl, ckpt_0000.pt (the untrained random-weight policy, saved before
-any update), periodic checkpoints and ckpt_final.pt. Stops at --updates (a total, counted across
+any update), periodic checkpoints (every --checkpoint-every updates, or each time the agent step
+count passes a multiple of --checkpoint-steps) and ckpt_final.pt. Stops at --updates (a total, counted across
 resumes) or after --max-minutes of this invocation, whichever comes first.
 
 --resume continues from a checkpoint: weights, optimiser, update and step counters, random
@@ -39,7 +41,10 @@ def main():
     ap.add_argument("--steps", type=int, default=128)
     ap.add_argument("--updates", type=int, default=200)
     ap.add_argument("--max-minutes", type=float, default=20.0)
-    ap.add_argument("--checkpoint-every", type=int, default=50)
+    ap.add_argument("--checkpoint-every", type=int, default=50, help="updates between checkpoints")
+    ap.add_argument("--checkpoint-steps", type=int, default=0, help="agent steps between checkpoints; replaces --checkpoint-every")
+    ap.add_argument("--aim", choices=("categorical", "gaussian"), default="categorical")
+    ap.add_argument("--first-stride", type=int, default=2, help="stride of the first convolution (1 = the first network)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--compile", action="store_true", help="torch.compile the update (about 1.7x faster here)")
@@ -54,7 +59,7 @@ def main():
     resume = torch.load(a.resume, map_location="cpu", weights_only=False) if a.resume else None
     if resume:
         saved = resume.get("args", {})
-        for key in ("map", "envs", "steps", "seed"):
+        for key in ("map", "envs", "steps", "seed", "aim", "first_stride"):
             if key in saved and saved[key] != getattr(a, key):
                 sys.exit(f"--{key} {getattr(a, key)} does not match the checkpoint ({saved[key]})")
         if resume["config"] != vars(cfg):
@@ -62,9 +67,9 @@ def main():
     else:
         with open(os.path.join(run_dir, "config.json"), "w") as f:
             json.dump({"args": vars(a), "ppo": vars(cfg)}, f, indent=1)
-    extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed")}}
+    extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed", "aim", "first_stride")}}
 
-    policy = Policy()
+    policy = Policy(aim=a.aim, first_stride=a.first_stride)
     start = time.time()
     with VecTeeworldsEnv(a.envs, a.server_dir, seed=a.seed, map=a.map, grid_format="codes") as venv:
         trainer = Trainer(venv, policy, cfg, seed=a.seed, compile=a.compile)
@@ -93,7 +98,11 @@ def main():
             log.flush()
             if trainer.update % 10 == 0 or trainer.update == 1:
                 print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items()}), flush=True)
-            if trainer.update % a.checkpoint_every == 0:
+            if a.checkpoint_steps:
+                due = trainer.agent_steps // a.checkpoint_steps > (trainer.agent_steps - batch["adv"].shape[0]) // a.checkpoint_steps
+            else:
+                due = trainer.update % a.checkpoint_every == 0
+            if due:
                 save_checkpoint(os.path.join(run_dir, f"ckpt_{trainer.update:04d}.pt"), trainer, extra)
         final = os.path.join(run_dir, "ckpt_final.pt")
         save_checkpoint(final, trainer, extra)
