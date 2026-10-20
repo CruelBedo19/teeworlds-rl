@@ -20,6 +20,7 @@ import argparse
 import glob
 import os
 import random
+import signal
 import subprocess
 import sys
 import threading
@@ -109,7 +110,14 @@ def play(env, args, episodes):
         print("episode %d done: AI-1 score %d, AI-2 score %d" % (info["episode_id"], score[0], score[1]), flush=True)
 
 
+def stop(signum, frame):
+    raise KeyboardInterrupt
+
+
 def run_live(args):
+    # SIGTERM, and SIGINT also when started in the background (where it is ignored), stop cleanly
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     port = int(subprocess.run(["freeport", "-u"], check=True, capture_output=True, text=True).stdout.split()[0])
     sock_path = os.path.abspath(os.path.expanduser(args.relay_socket))
     if udp_tcp_relay.socket_in_use(sock_path):
@@ -119,7 +127,7 @@ def run_live(args):
     time.sleep(0.2)
     try:
         with TeeworldsEnv(args.server_dir, map=args.map, mode=0, episode_ticks=args.episode_ticks, port=port,
-                          extra_commands=["sv_player_slots 2", "sv_max_clients 4", "sv_name twrl-watch"]) as env:
+                          extra_commands=["sv_player_slots 2", "sv_max_clients 4", "sv_name %s" % args.server_name]) as env:
             print("server: udp 127.0.0.1:%d (pid %d), relay socket %s" % (port, env.server_pid, sock_path))
             print("on the Mac: ssh -N -L 127.0.0.1:8304:%s <remote-host>" % sock_path)
             print("            python3 udp_tcp_relay.py client --listen-udp 127.0.0.1:8303 --connect-tcp 127.0.0.1:8304")
@@ -163,6 +171,7 @@ def main():
         p.add_argument("--episode-ticks", type=int, default=3000)
     sub.choices["live"].add_argument("--episodes", type=int, default=0, help="0 = until Ctrl+C")
     sub.choices["live"].add_argument("--relay-socket", default="~/.twrl-watch/relay.sock")
+    sub.choices["live"].add_argument("--server-name", default="twrl-watch", help="shown in the client")
     sub.choices["record"].add_argument("--episodes", type=int, default=5)
     sub.choices["record"].add_argument("--name", default="twrl-random")
     args = ap.parse_args()
