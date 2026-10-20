@@ -52,7 +52,8 @@ class TestPolicy(unittest.TestCase):
         logits, value = policy(batch["vec"], batch["codes"])
         self.assertEqual(logits.shape, (256, sum(HEADS)))
         self.assertEqual(value.shape, (256,))
-        _, ent, _ = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
+        _, ent, _, aim_ent = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
+        self.assertTrue(torch.equal(aim_ent, torch.zeros(256)))  # the categorical aim is in ent
         # the actor head starts almost uniform: entropy close to the maximum
         self.assertAlmostEqual(ent.mean().item(), sum(np.log(HEADS)), delta=0.01)
 
@@ -142,12 +143,39 @@ class TestGaussianAim(unittest.TestCase):
     def test_act_and_evaluate_agree(self):
         policy, batch = fake_batch(aim="gaussian")
         self.assertEqual(batch["actions"].shape, (256, len(DISCRETE) + 2))
-        logp, ent, value = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
+        logp, ent, value, aim_ent = policy.evaluate(batch["vec"], batch["codes"], batch["actions"])
         self.assertTrue(torch.allclose(logp, batch["logp"], atol=1e-5))
         self.assertTrue(torch.allclose(value, batch["values"]))
-        # discrete heads near uniform, aim std exp(-0.5) per axis at the start
+        # discrete heads near uniform; aim std exp(-0.5) per axis at the start, reported on its own
+        self.assertAlmostEqual(ent.mean().item(), sum(np.log(DISCRETE)), delta=0.01)
         gauss = 2 * (0.5 * math.log(2 * math.pi * math.e) - 0.5)
-        self.assertAlmostEqual(ent.mean().item(), sum(np.log(DISCRETE)) + gauss, delta=0.01)
+        self.assertAlmostEqual(aim_ent.mean().item(), gauss, delta=1e-4)
+
+    def test_log_std_is_capped_at_zero(self):
+        policy, batch = fake_batch(aim="gaussian")
+        with torch.no_grad():
+            policy.log_std.fill_(2.0)
+        self.assertTrue(torch.equal(policy._std(), torch.ones(2)))
+        self.assertEqual(policy.spec["log_std_max"], 0.0)
+
+    def test_no_entropy_bonus_on_the_aim(self):
+        # with zero advantages and exact value targets only the entropy bonus could move log_std
+        policy, batch = fake_batch(aim="gaussian")
+        batch["adv"] = torch.zeros_like(batch["adv"])
+        batch["returns"] = batch["values"].clone()
+        before = policy.log_std.detach().clone()
+        stats = Trainer(NoEnv(), policy, PPOConfig(epochs=2, minibatch=64)).train(batch)
+        self.assertTrue(torch.equal(policy.log_std.detach(), before))
+        self.assertEqual(stats["log_std_x"], before[0].item())
+
+    def test_gaussian_checkpoints_before_the_cap_keep_theirs(self):
+        policy = Policy(aim="gaussian", log_std_max=1.0)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "ab.pt")
+            torch.save({"format": 3, "model": {"hidden": 256, "aim": "gaussian", "first_stride": 2},
+                        "policy": policy.state_dict(), "update": 0, "agent_steps": 0}, path)
+            loaded, _ = load_policy(path)
+        self.assertEqual(loaded.spec["log_std_max"], 1.0)
 
     def test_initial_aim_has_no_preferred_direction(self):
         policy, batch = fake_batch(n=4096, aim="gaussian")
@@ -210,6 +238,30 @@ class TestTrainingLoop(unittest.TestCase):
             # 2 x 64 steps of 50-step episodes: both envs finished twice, events were summed
             self.assertEqual(len(trainer.finished), 4)
             self.assertEqual(trainer.agent_steps, 2 * 64 * 4)
+
+    def test_frozen_opponent(self):
+        torch.manual_seed(0)
+        with VecTeeworldsEnv(4, SERVER_DIR, seed=3, map="lms1", grid_format="codes", episode_ticks=100, raw_info=True) as venv:
+            learner = Policy(aim="gaussian")
+            opponent = Policy(aim="gaussian")
+            opponent.load_state_dict(learner.state_dict())
+            frozen = [p.detach().clone() for p in opponent.parameters()]
+            trainer = Trainer(venv, learner, PPOConfig(num_envs=4, steps=64, epochs=1, minibatch=128), opponent=opponent)
+            np.testing.assert_array_equal(trainer.rows, [0, 3, 4, 7])  # learner is agent 0 in even envs, 1 in odd
+            for _ in range(2):
+                batch = trainer.collect()
+                self.assertEqual(batch["vec"].shape, (64 * 4, P.VEC_DIM))  # learner samples only
+                for k in ("adv", "returns", "logp", "values"):
+                    self.assertTrue(torch.isfinite(batch[k]).all(), k)
+                trainer.train(batch)
+            self.assertEqual(trainer.agent_steps, 2 * 64 * 4)
+            self.assertEqual(len(trainer.finished), 8)
+            self.assertTrue(all(torch.equal(a, b) for a, b in zip(frozen, opponent.parameters())))
+            self.assertFalse(all(torch.equal(a, b) for a, b in zip(frozen, learner.parameters())))
+            alive, visible, _, shots, _, _ = trainer.behaviour
+            self.assertGreater(alive, 0)
+            self.assertLessEqual(visible, alive)
+            self.assertGreater(shots, 0)
 
 
 @unittest.skipUnless(SERVER_DIR, "set TWRL_SERVER_DIR to a build directory with teeworlds_srv")

@@ -24,7 +24,8 @@ DISCRETE = (3, 2, 2, 2)  # direction, jump, fire, hook
 HEADS = DISCRETE + (AIM_BINS,)  # with the categorical aim
 AIM_RADIUS = 256  # length of the integer target vector sent to the env
 LOG_STD_INIT = -0.5
-LOG_STD_RANGE = (-5.0, 1.0)
+LOG_STD_MIN = -5.0
+LOG_STD_MAX = 0.0  # the A/B run's Gaussian arm used 1.0 and its std grew straight to it
 _AIM = np.array([[round(256 * math.cos(2 * math.pi * k / AIM_BINS)), round(256 * math.sin(2 * math.pi * k / AIM_BINS))]
                  for k in range(AIM_BINS)], dtype=np.int32)
 
@@ -69,11 +70,13 @@ class Policy(nn.Module):
     index for the categorical aim, an x, y vector for the Gaussian one). first_stride=2 halves the
     grid in the first convolution, which was most of the network's cost at full resolution."""
 
-    def __init__(self, hidden=256, aim="categorical", first_stride=2):
+    def __init__(self, hidden=256, aim="categorical", first_stride=2, log_std_max=LOG_STD_MAX):
         super().__init__()
         if aim not in ("categorical", "gaussian"):
             raise ValueError("aim must be 'categorical' or 'gaussian'")
         self.spec = {"hidden": hidden, "aim": aim, "first_stride": first_stride}
+        if aim == "gaussian":
+            self.spec["log_std_max"] = log_std_max
         self.gaussian = aim == "gaussian"
         self.action_dim = len(DISCRETE) + (2 if self.gaussian else 1)
         g = math.sqrt(2)
@@ -105,7 +108,7 @@ class Policy(nn.Module):
         return self.pi(h), self.v(h).squeeze(-1)
 
     def _std(self):
-        return self.log_std.clamp(*LOG_STD_RANGE).exp()
+        return self.log_std.clamp(LOG_STD_MIN, self.spec["log_std_max"]).exp()
 
     def _split(self, out):
         sizes = DISCRETE + ((2,) if self.gaussian else (AIM_BINS,))
@@ -136,7 +139,10 @@ class Policy(nn.Module):
         return torch.cat(actions, dim=-1), logp, value, ent
 
     def evaluate(self, vec, codes, actions, forward=None):
-        """Log prob, entropy and value of `actions`; `forward` may be a compiled version of self.forward."""
+        """Log prob, entropy, value and Gaussian aim entropy of `actions`; `forward` may be a compiled version
+        of self.forward. The entropy covers the categorical heads (the categorical aim included); the
+        Gaussian aim's entropy is returned on its own (zeros for the categorical aim), so the trainer
+        can leave it out of the entropy bonus."""
         out, value = (forward or self)(vec, codes)
         logits, aim = self._split(out)
         n = len(DISCRETE)
@@ -147,11 +153,12 @@ class Policy(nn.Module):
             d = torch.distributions.Categorical(logits=chunk)
             logp = logp + d.log_prob(a)
             ent = ent + d.entropy()
+        aim_ent = torch.zeros_like(value)
         if self.gaussian:
             d = torch.distributions.Normal(aim, self._std().expand_as(aim))
             logp = logp + d.log_prob(actions[:, n:]).sum(-1)
-            ent = ent + d.entropy().sum(-1)
-        return logp, ent, value
+            aim_ent = d.entropy().sum(-1)
+        return logp, ent, value, aim_ent
 
     def env_actions(self, actions):
         """(..., action_dim) actions as numpy -> (..., 6) int32 env actions."""
@@ -170,9 +177,11 @@ class PPOConfig:
         self.minibatch = 512
         self.lr = 3e-4
         self.clip = 0.2
-        self.ent_coef = 0.01
+        self.ent_coef = 0.01  # categorical heads
+        self.aim_ent_coef = 0.0  # Gaussian aim: no entropy bonus (it only inflated the std in the A/B run)
         self.vf_coef = 0.5
         self.max_grad_norm = 0.5
+        self.adv_norm = "batch"  # normalise advantages once over the whole batch ("minibatch": per minibatch)
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise TypeError(f"unknown PPO setting {k}")
@@ -187,28 +196,73 @@ def flatten_agents(obs):
 
 
 CHECKPOINT_FORMAT = 3
+BEHAVIOUR = ("alive_steps", "visible_steps", "aim_cos_sum", "shots", "damage_dealt", "kills")  # learner sums
 
 
 class Trainer:
     """Collects rollouts from a VecTeeworldsEnv (grid_format="codes") and runs PPO updates.
 
+    Self-play by default: the policy plays both agents of every env and learns from both. With a
+    frozen `opponent` (a Policy that is never updated) the learner plays agent i % 2 of env i and the
+    opponent the other one; only the learner's samples are trained on.
+
     compile=True runs the update's forward/backward through torch.compile (same numbers to ~1e-7,
     about 1.7x faster on this CPU); collection always uses the plain module."""
 
-    def __init__(self, venv, policy, cfg, seed=1, compile=False):
+    def __init__(self, venv, policy, cfg, seed=1, compile=False, opponent=None):
         self.venv, self.policy, self.cfg = venv, policy, cfg
         self.opt = torch.optim.Adam(policy.parameters(), lr=cfg.lr, eps=1e-5)
         self._forward = torch.compile(policy.forward) if compile else None
         self.gen = torch.Generator().manual_seed(seed)
+        self.opponent = opponent
+        n = venv.num_envs
+        if opponent is None:
+            self.side = None
+            self.rows = np.arange(2 * n)  # learner rows of the flattened (env, agent) observations
+        else:
+            opponent.eval()
+            self.opp_gen = torch.Generator().manual_seed(seed + 1_000_003)
+            self.side = np.arange(n) % 2
+            self.rows = 2 * np.arange(n) + self.side
+            self.opp_rows = 2 * np.arange(n) + 1 - self.side
         self.update = 0
         self.agent_steps = 0
         self.obs = venv.reset()
-        self.episode_events = np.zeros((venv.num_envs, 2, 5), dtype=np.int64)
-        self.finished = []  # per finished episode: (2, 5) event totals
+        self.prev_agents = None
+        self.episode_events = np.zeros((n, 2, 6), dtype=np.int64)
+        self.finished = []  # per finished episode: (2, 6) event totals, learner first when there is an opponent
+        self.behaviour = np.zeros(len(BEHAVIOUR))
+
+    def _learner_first(self, events, i):
+        return events if self.side is None or self.side[i] == 0 else events[::-1]
+
+    def _track(self, vec, env_actions, infos, ended):
+        """Learner behaviour measurements (no effect on training): visibility, aim alignment, shots."""
+        v = vec[self.rows]
+        a = env_actions.reshape(-1, 6)[self.rows, 4:6].astype(np.float64)
+        alive = v[:, P.VEC_INDEX["alive"]] > 0
+        vis = alive & (v[:, P.VEC_INDEX["opp_visible"]] > 0)
+        d = np.stack([v[:, P.VEC_INDEX["opp_dx"]] * P.VIEW_HALF_WIDTH, v[:, P.VEC_INDEX["opp_dy"]] * P.VIEW_HALF_HEIGHT], 1)
+        cos = (a * d).sum(1) / np.maximum(np.hypot(*a.T) * np.hypot(*d.T), 1e-6)
+        self.behaviour[0] += alive.sum()
+        self.behaviour[1] += vis.sum()
+        self.behaviour[2] += cos[vis].sum()
+        events = infos["events"].reshape(-1, 6)[self.rows]
+        self.behaviour[4] += events[:, P.EVENT_NAMES.index("damage_dealt")].sum()
+        self.behaviour[5] += events[:, P.EVENT_NAMES.index("kills")].sum()
+        agents = infos.get("agents")
+        if agents is not None:
+            ammo, live = agents["ammo"].reshape(-1)[self.rows], agents["alive"].reshape(-1)[self.rows]
+            if self.prev_agents is not None:
+                same = ~np.repeat(ended, 2)[self.rows]  # an env that was reset starts a new episode
+                prev_ammo, prev_live = self.prev_agents
+                self.behaviour[3] += ((prev_ammo - ammo > 0) & (prev_live == 1) & (live == 1) & same).sum()
+            self.prev_agents = (ammo.copy(), live.copy())
 
     def collect(self):
         cfg, n = self.cfg, self.venv.num_envs
-        b = 2 * n
+        rows = torch.from_numpy(self.rows)
+        b = len(self.rows)
         T = cfg.steps
         vec = torch.zeros(T, b, P.VEC_DIM)
         codes = torch.zeros(T, b, P.GRID_HEIGHT, P.GRID_WIDTH, dtype=torch.uint8)
@@ -218,33 +272,46 @@ class Trainer:
         rewards = torch.zeros(T, b)
         dones = torch.zeros(T, b)
         ent = torch.zeros(T, b)
+        env_actions = np.zeros((2 * n, 6), dtype=np.int32)
         for t in range(T):
-            v, c = flatten_agents(self.obs)
+            v_all, c_all = flatten_agents(self.obs)
+            v, c = v_all[rows], c_all[rows]
             with torch.no_grad():
                 a, lp, val, e = self.policy.act(v, c, self.gen)
+                env_actions[self.rows] = self.policy.env_actions(a.numpy())
+                if self.opponent is not None:
+                    opp = torch.from_numpy(self.opp_rows)
+                    oa = self.opponent.act(v_all[opp], c_all[opp], self.opp_gen)[0]
+                    env_actions[self.opp_rows] = self.opponent.env_actions(oa.numpy())
             vec[t], codes[t], actions[t], logp[t], values[t], ent[t] = v, c, a, lp, val, e
-            self.obs, r, term, trunc, infos = self.venv.step(self.policy.env_actions(a.numpy().reshape(n, 2, -1)))
-            r = torch.from_numpy(r.reshape(-1).copy())
-            done = np.repeat(term | trunc, 2)
-            self.episode_events += infos["events"][..., :5]
+            self.obs, r, term, trunc, infos = self.venv.step(env_actions.reshape(n, 2, 6))
+            ended = term | trunc
+            self._track(v_all.numpy(), env_actions, infos, ended)
+            r = torch.from_numpy(r.reshape(-1)[self.rows].copy())
+            done = np.repeat(ended, 2)[self.rows]
+            self.episode_events += infos["events"]
             if "final_index" in infos:
                 # truncation is a time limit, not a real end: bootstrap from the last observation
                 idx = infos["final_index"]
                 fv = torch.from_numpy(infos["final_vec"].reshape(-1, P.VEC_DIM))
                 fc = torch.from_numpy(infos["final_grid"].reshape(-1, P.GRID_HEIGHT, P.GRID_WIDTH))
+                # learner rows among the final observations, and where those agents sit in the batch
+                final_rows = np.flatnonzero(np.isin(np.repeat(idx, 2) * 2 + np.tile([0, 1], len(idx)), self.rows))
+                batch_rows = np.searchsorted(self.rows, (np.repeat(idx, 2) * 2 + np.tile([0, 1], len(idx)))[final_rows])
                 with torch.no_grad():
-                    _, fval = self.policy(fv, fc)
-                rows = torch.from_numpy(np.stack([2 * idx, 2 * idx + 1], axis=1).reshape(-1))
-                trunc_rows = torch.from_numpy(np.repeat(trunc[idx], 2))
-                r[rows] += cfg.gamma * fval * trunc_rows.float()
+                    _, fval = self.policy(fv[final_rows], fc[final_rows])
+                trunc_rows = torch.from_numpy(np.repeat(trunc[idx], 2)[final_rows])
+                r[torch.from_numpy(batch_rows)] += cfg.gamma * fval * trunc_rows.float()
                 for i in idx:
-                    self.finished.append(self.episode_events[i].copy())
+                    totals = self.episode_events[i].copy()
+                    totals[:, 5] = infos["events"][i, :, 5]  # the score is a running total, not a count
+                    self.finished.append(self._learner_first(totals, i))
                     self.episode_events[i] = 0
             rewards[t] = r
             dones[t] = torch.from_numpy(done.astype(np.float32))
-        v, c = flatten_agents(self.obs)
+        v_all, c_all = flatten_agents(self.obs)
         with torch.no_grad():
-            _, last_value = self.policy(v, c)
+            _, last_value = self.policy(v_all[rows], c_all[rows])
         adv = torch.zeros(T, b)
         last = torch.zeros(b)
         for t in reversed(range(T)):
@@ -261,19 +328,23 @@ class Trainer:
     def train(self, batch):
         cfg = self.cfg
         total = batch["adv"].shape[0]
-        stats = {k: [] for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "clip_frac", "grad_norm")}
+        stats = {k: [] for k in ("policy_loss", "value_loss", "entropy", "aim_entropy", "approx_kl", "clip_frac", "grad_norm")}
+        all_adv = batch["adv"]
+        if cfg.adv_norm == "batch":
+            all_adv = (all_adv - all_adv.mean()) / (all_adv.std() + 1e-8)
         for _ in range(cfg.epochs):
             perm = torch.randperm(total, generator=self.gen)
             for start in range(0, total, cfg.minibatch):
                 mb = perm[start:start + cfg.minibatch]
-                logp, ent, value = self.policy.evaluate(batch["vec"][mb], batch["codes"][mb], batch["actions"][mb], self._forward)
-                adv = batch["adv"][mb]
-                adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+                logp, ent, value, aim_ent = self.policy.evaluate(batch["vec"][mb], batch["codes"][mb], batch["actions"][mb], self._forward)
+                adv = all_adv[mb]
+                if cfg.adv_norm == "minibatch":
+                    adv = (adv - adv.mean()) / (adv.std() + 1e-8)
                 ratio = torch.exp(logp - batch["logp"][mb])
                 pg = -torch.min(ratio * adv, torch.clamp(ratio, 1 - cfg.clip, 1 + cfg.clip) * adv).mean()
                 vl = 0.5 * ((value - batch["returns"][mb]) ** 2).mean()
-                el = ent.mean()
-                loss = pg + cfg.vf_coef * vl - cfg.ent_coef * el
+                el, ael = ent.mean(), aim_ent.mean()
+                loss = pg + cfg.vf_coef * vl - cfg.ent_coef * el - cfg.aim_ent_coef * ael
                 self.opt.zero_grad()
                 loss.backward()
                 gn = nn.utils.clip_grad_norm_(self.policy.parameters(), cfg.max_grad_norm)
@@ -287,9 +358,14 @@ class Trainer:
                 stats["policy_loss"].append(pg.item())
                 stats["value_loss"].append(vl.item())
                 stats["entropy"].append(el.item())
+                stats["aim_entropy"].append(ael.item())
                 stats["grad_norm"].append(gn.item())
         self.update += 1
-        return {k: float(np.mean(v)) for k, v in stats.items()}
+        out = {k: float(np.mean(v)) for k, v in stats.items()}
+        out["grad_norm_max"] = float(np.max(stats["grad_norm"]))
+        if self.policy.gaussian:
+            out["log_std_x"], out["log_std_y"] = (float(x) for x in self.policy.log_std.detach())
+        return out
 
     def state_dict(self):
         return {"format": CHECKPOINT_FORMAT, "model": dict(self.policy.spec), "policy": self.policy.state_dict(), "optimizer": self.opt.state_dict(),
@@ -297,6 +373,7 @@ class Trainer:
                 # random streams: action sampling and minibatch order, torch's global stream, and how many
                 # episodes each env has started, so a resumed run does not replay the same starts
                 "generator": self.gen.get_state(), "torch_rng": torch.get_rng_state(),
+                "opponent_generator": self.opp_gen.get_state() if self.opponent is not None else None,
                 "env_episodes": list(getattr(self.venv, "_episodes", []))}
 
     def load_state_dict(self, state):
@@ -307,6 +384,8 @@ class Trainer:
         self.update = state["update"]
         self.agent_steps = state["agent_steps"]
         self.gen.set_state(state["generator"])
+        if self.opponent is not None and state.get("opponent_generator") is not None:
+            self.opp_gen.set_state(state["opponent_generator"])
         if "torch_rng" in state:
             torch.set_rng_state(state["torch_rng"])
         if state.get("env_episodes") and hasattr(self.venv, "_episodes"):
@@ -330,8 +409,12 @@ def save_checkpoint(path, trainer, extra=None):
 
 def model_spec(state):
     """The Policy settings a checkpoint was made with; checkpoints before format 3 used the first
-    network (categorical aim, stride-1 first convolution)."""
-    return state.get("model", {"hidden": 256, "aim": "categorical", "first_stride": 1})
+    network (categorical aim, stride-1 first convolution). Gaussian checkpoints made before log_std_max
+    existed keep the cap they were trained with (1.0)."""
+    spec = dict(state.get("model", {"hidden": 256, "aim": "categorical", "first_stride": 1}))
+    if spec["aim"] == "gaussian":
+        spec.setdefault("log_std_max", 1.0)
+    return spec
 
 
 def load_policy(path):

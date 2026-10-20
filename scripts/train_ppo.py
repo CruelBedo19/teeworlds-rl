@@ -10,12 +10,17 @@ any update), periodic checkpoints (every --checkpoint-every updates, or each tim
 count passes a multiple of --checkpoint-steps) and ckpt_final.pt. Stops at --updates (a total, counted across
 resumes) or after --max-minutes of this invocation, whichever comes first.
 
+--opponent makes it a learner-vs-frozen-opponent run instead of self-play: "initial" is this run's
+own ckpt_0000.pt (the untrained random-weight network), or give a checkpoint path. The opponent is
+never updated and only the learner's samples are trained on and counted as agent steps.
+
 --resume continues from a checkpoint: weights, optimiser, update and step counters, random
 streams and the env seed stream. Episodes that were running when it was saved are not resumed;
 the environments start fresh episodes, so a resumed run is not bit-identical to an uninterrupted one.
 """
 
 import argparse
+import copy
 import json
 import os
 import sys
@@ -27,9 +32,8 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from twrl import VecTeeworldsEnv  # noqa: E402
-from twrl.ppo import Policy, PPOConfig, Trainer, flatten_agents, load_policy, save_checkpoint  # noqa: E402
-
-EVENTS = ("kills", "deaths", "suicides", "damage_dealt", "damage_taken")
+from twrl.ppo import BEHAVIOUR, Policy, PPOConfig, Trainer, flatten_agents, load_policy, save_checkpoint  # noqa: E402
+from twrl.protocol import EVENT_NAMES  # noqa: E402
 
 
 def main():
@@ -48,6 +52,7 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--compile", action="store_true", help="torch.compile the update (about 1.7x faster here)")
+    ap.add_argument("--opponent", help='frozen opponent: "initial" (this run\'s ckpt_0000.pt) or a checkpoint path')
     ap.add_argument("--resume", help="checkpoint to continue from")
     a = ap.parse_args()
 
@@ -59,7 +64,7 @@ def main():
     resume = torch.load(a.resume, map_location="cpu", weights_only=False) if a.resume else None
     if resume:
         saved = resume.get("args", {})
-        for key in ("map", "envs", "steps", "seed", "aim", "first_stride"):
+        for key in ("map", "envs", "steps", "seed", "aim", "first_stride", "opponent"):
             if key in saved and saved[key] != getattr(a, key):
                 sys.exit(f"--{key} {getattr(a, key)} does not match the checkpoint ({saved[key]})")
         if resume["config"] != vars(cfg):
@@ -67,17 +72,28 @@ def main():
     else:
         with open(os.path.join(run_dir, "config.json"), "w") as f:
             json.dump({"args": vars(a), "ppo": vars(cfg)}, f, indent=1)
-    extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed", "aim", "first_stride")}}
+    extra = {"args": {k: getattr(a, k) for k in ("map", "envs", "steps", "seed", "aim", "first_stride", "opponent")}}
 
     policy = Policy(aim=a.aim, first_stride=a.first_stride)
     start = time.time()
-    with VecTeeworldsEnv(a.envs, a.server_dir, seed=a.seed, map=a.map, grid_format="codes") as venv:
-        trainer = Trainer(venv, policy, cfg, seed=a.seed, compile=a.compile)
+    initial = os.path.join(run_dir, "ckpt_0000.pt")
+    if a.opponent and not resume and a.opponent != "initial":
+        sys.exit("a new run takes --opponent initial; other checkpoints only make sense with --resume or by path")
+    with VecTeeworldsEnv(a.envs, a.server_dir, seed=a.seed, map=a.map, grid_format="codes", raw_info=True) as venv:
+        opponent = None
+        if a.opponent == "initial" and not resume:
+            opponent = copy.deepcopy(policy)  # exactly the learner's starting network, which is ckpt_0000.pt
+        elif a.opponent:
+            opponent = load_policy(initial if a.opponent == "initial" else a.opponent)[0]
+        if opponent is not None:
+            for p in opponent.parameters():
+                p.requires_grad_(False)
+        trainer = Trainer(venv, policy, cfg, seed=a.seed, compile=a.compile, opponent=opponent)
         if resume:
             trainer.load_state_dict(resume)
             print(f"resumed at update {trainer.update}, {trainer.agent_steps} agent steps", flush=True)
         else:
-            save_checkpoint(os.path.join(run_dir, "ckpt_0000.pt"), trainer, extra)
+            save_checkpoint(initial, trainer, extra)
         log = open(os.path.join(run_dir, "metrics.jsonl"), "a" if resume else "w")
         while trainer.update < a.updates and time.time() - start < a.max_minutes * 60:
             t0 = time.time()
@@ -85,15 +101,25 @@ def main():
             t1 = time.time()
             stats = trainer.train(batch)
             t2 = time.time()
-            finished = np.array(trainer.finished) if trainer.finished else np.zeros((0, 2, 5))
+            finished = np.array(trainer.finished) if trainer.finished else np.zeros((0, 2, 6))
             trainer.finished = []
+            beh = dict(zip(BEHAVIOUR, trainer.behaviour))
+            trainer.behaviour[:] = 0
             row = {"update": trainer.update, "agent_steps": trainer.agent_steps, "minutes": round((time.time() - start) / 60, 2),
                    "collect_s": round(t1 - t0, 2), "train_s": round(t2 - t1, 2),
                    "reward_per_step": batch["rewards"].mean().item(), "rollout_entropy": batch["entropy"],
-                   "episodes": len(finished), **stats}
+                   "episodes": len(finished), **stats,
+                   "visible_frac": beh["visible_steps"] / max(beh["alive_steps"], 1),
+                   "aim_cos": beh["aim_cos_sum"] / max(beh["visible_steps"], 1),
+                   "shots": beh["shots"], "hit_rate": beh["damage_dealt"] / max(beh["shots"], 1), "step_kills": beh["kills"]}
             if len(finished):
-                per_agent = finished.reshape(-1, 5).mean(axis=0)
-                row.update({"ep_" + k: float(v) for k, v in zip(EVENTS, per_agent)})
+                if opponent is None:
+                    row.update({"ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished.reshape(-1, 6)[:, :5].mean(axis=0))})
+                else:  # learner first, then the frozen opponent
+                    row.update({"ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished[:, 0, :5].mean(axis=0))})
+                    row.update({"opp_ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished[:, 1, :5].mean(axis=0))})
+                    row["win_rate"] = float((finished[:, 0, 5] > finished[:, 1, 5]).mean())
+                    row["loss_rate"] = float((finished[:, 0, 5] < finished[:, 1, 5]).mean())
             log.write(json.dumps(row) + "\n")
             log.flush()
             if trainer.update % 10 == 0 or trainer.update == 1:

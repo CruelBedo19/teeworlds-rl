@@ -44,7 +44,7 @@ class CheckpointFollower:
 
     Checkpoints are written atomically (temp file + rename), so a listed ckpt_*.pt is always complete."""
 
-    def __init__(self, run_dir, refresh_seconds, seed):
+    def __init__(self, run_dir, refresh_seconds, seed, opponent=None):
         import torch  # only this mode needs torch
         from twrl.ppo import load_policy
         self.torch, self.load_policy = torch, load_policy
@@ -54,6 +54,12 @@ class CheckpointFollower:
         self.gen = torch.Generator().manual_seed(seed)
         self.policy = self.current = None
         self.checked = 0.0
+        # a fixed policy for AI-2 (the frozen opponent of a learner-vs-opponent run); None: both play the run
+        self.opponent = None
+        if opponent:
+            self.opponent = load_policy(os.path.join(run_dir, "ckpt_0000.pt") if opponent == "initial" else opponent)[0]
+            self.opp_gen = torch.Generator().manual_seed(seed + 1)
+            print("AI-2: frozen %s" % opponent, flush=True)
         self.refresh(force=True)
 
     def newest(self):
@@ -82,13 +88,15 @@ class CheckpointFollower:
         vec = self.torch.from_numpy(agents["vec"].copy())
         codes = self.torch.from_numpy(agents["grid"][:, :P.GRID_CELLS].reshape(P.NUM_AGENTS, P.GRID_HEIGHT, P.GRID_WIDTH).copy())
         with self.torch.no_grad():
-            actions = self.policy.act(vec, codes, self.gen)[0]
-        return self.policy.env_actions(actions.numpy())
+            actions = self.policy.env_actions(self.policy.act(vec, codes, self.gen)[0].numpy())
+            if self.opponent is not None:
+                actions[1] = self.opponent.env_actions(self.opponent.act(vec[1:], codes[1:], self.opp_gen)[0].numpy())[0]
+        return actions
 
 
 def play(env, args, episodes):
     rng = random.Random(args.seed)
-    ppo = CheckpointFollower(args.run_dir, args.refresh_seconds, args.seed) if args.policy == "ppo" else None
+    ppo = CheckpointFollower(args.run_dir, args.refresh_seconds, args.seed, args.opponent) if args.policy == "ppo" else None
     episode = 0
     while episodes == 0 or episode < episodes:
         obs, info = env.reset(seed=args.seed + episode)
@@ -166,6 +174,7 @@ def main():
         p.add_argument("--map", default="lms1")
         p.add_argument("--policy", choices=("random", "chase", "ppo"), default="random")
         p.add_argument("--run-dir", help="--policy ppo: the training run whose newest checkpoint plays")
+        p.add_argument("--opponent", help='--policy ppo: AI-2 plays this fixed checkpoint ("initial" = the run\'s ckpt_0000.pt); AI-1 the newest')
         p.add_argument("--refresh-seconds", type=float, default=60.0, help="--policy ppo: how often to look for a newer checkpoint")
         p.add_argument("--seed", type=int, default=1)
         p.add_argument("--episode-ticks", type=int, default=3000)
