@@ -1,6 +1,6 @@
 # Faz planı
 
-Durum: **Faz 0 ve Faz 1 tamamlandı (2026-10-19).** Faz 2 başlamadı, kullanıcı onayı bekleniyor. Mimari ve gerekçeler için [README.md](README.md).
+Durum: **Faz 0, 1 ve 2 tamamlandı (2026-10-19).** Faz 3 (PPO) başlamadı, kullanıcı onayı bekleniyor. Mimari ve gerekçeler için [README.md](README.md).
 
 Hedef: iki AI'ın Teeworlds 0.7.5'te 1v1 Deathmatch self-play ile aim, movement, dodge ve combat öğrenmesi.
 
@@ -69,29 +69,58 @@ Darboğaz Faz 0'da beklendiği gibi Python ve IPC: server tek başına ~630k tic
 
 Not: dm1'de random ajanlar neredeyse hiç karşılaşmıyor (6M tick'te 3 kill). Savaş testleri küçük `lms1` haritasında, yalnız test amaçlı bir kovalama script'iyle ([twrl/testing.py](twrl/testing.py)) yapıldı. Faz 2 için küçük harita seçimi önemli.
 
-## Faz 2: Basit senaryo ve PPO
+## Faz 2: Gözlem ve ortam katmanı
 
-- [ ] Tek silah (tabanca veya lazer), düz harita, pickup yok.
-- [ ] Gözlem: vektör (kendi hız, konum, can, hook; rakibe göreli konum ve hız) + küçük tile ızgarası.
-- [ ] Aksiyon: hareket (3), zıpla, hook, ateş, ayrık nişan açısı (32-64 kova).
-- [ ] Ödül: öldürme +1, ölme -1, verilen hasar küçük +, alınan hasar küçük −, suicide daha büyük −. Yakınlık ve nişan ödülü yok.
-- [ ] PyTorch PPO + GAE, grad norm 0.5-1, adaptif entropi.
-- [ ] Rakip: kendisi (iki ajan random weights ile başlar). Kural tabanlı bot zorunlu değil; gerekirse yalnızca baseline/değerlendirme veya ayrı bir curriculum deneyi.
+Ayrıntılı ve kesin şartname: [ENVIRONMENT.md](ENVIRONMENT.md). Patch: [patches/0004-*](patches/), teeworlds branch `rl/phase2`.
+
+- [x] Protokol v2: aksiyon değişmedi; OBS sabit 2340 byte, HELLO haritanın collision'ını bir kez gönderir.
+- [x] Mekânsal gözlem: agent'ın tile'ı merkezde 33×25 tile egosentrik collision ızgarası (solid, death, nohook).
+- [x] 67 boyutlu vektör: kendi durum, rakip (yalnız insanın göreceği dikdörtgen içinde), atış hattı biti, en yakın 4 mermi, episode ilerlemesi. Rakibin can/zırh/ammo değeri yok.
+- [x] Seed'li spawn çeşitliliği: her episode'un ilk spawn'ı iki farklı rastgele harita spawn noktası (yalnız RL modunda).
+- [x] `VecTeeworldsEnv`: N server tek Python process'ten, otomatik reset, numpy dizileri, `grid_format="codes"` seçeneği.
+- [x] Testler (38 entegrasyon + 2 relay), uzun stres testi, Faz 1 ile aynı yük altında karşılaştırmalı benchmark.
+
+### Sonuç
+
+- 38/38 entegrasyon testi ve 2/2 relay testi geçti. Grid, haritanın kendisinden hesaplanan beklenen pencereyle her step'te birebir aynı (dm6'da death ve nohook tile'ları dahil); rakip göreli konumu, hızı, görüş alanı ve atış hattı ham durumla doğrulandı; mermi slotları sıralı ve sınırlar içinde.
+- Determinizm: aynı seed ile episode'lar aynı process'te ve taze process'te birebir aynı; farklı seed farklı başlangıç ve iz; mod 0, 1, 2 aynı; vector env tek env ile birebir aynı. Bridge kapalıyken Faz 0 hash dizisi hâlâ birebir aynı.
+- Stres: 8 env, toplam 3200 episode ve 9.6M tick (lms1 random, dm6 random, lms1 chase). Çökme, desync, NaN/Inf, aralık dışı değer, olay tutarsızlığı yok. dm6'da 636 suicide (death tile) doğal olarak üretildi. Server RSS ısınmadan sonra sabit, Python ~45 MB.
+- ASan/UBSan: yeni koddan rapor yok (yalnız vanilla `CJobPool` kapanışındaki bilinen çift `pthread_join`).
+- Payload: env step başına 2340 + 16 byte (Faz 1: 252 + 16). BuildObs server'da step başına 1.4-3 µs.
+- Throughput, aynı yük altında arka arkaya (`bench/results/2026-10-19-phase1-vs-phase2.csv`, load 10-15):
+
+| env | Faz 1, env başına process | Faz 2, env başına process | Faz 2, tek process |
+|---|---|---|---|
+| 1 | 37 636 | 30 036 | 29 944 |
+| 4 | 119 538 | 94 653 | 54 670 |
+| 8 | 183 594 | 141 377 | 84 947 |
+| 12 | 212 709 | 164 822 | 90 660 |
+
+Faz 2 aynı düzende yaklaşık %20-23 yavaş: Python'da step başına ~20 µs çözme (grid bitleri, kopyalar), server'da tick başına ~2 µs. Tek Python process'i env sayısından bağımsız ~90k tick/s'de doyuyor; Faz 3'te birden fazla worker process gerekecek.
+
+## Faz 3: PPO (eğitim başlangıcı)
+
+- [ ] Küçük harita (lms1), mevcut gözlem ve aksiyon; nişan için ayrık açı kovaları veya sürekli Gauss.
+- [ ] Ödül: öldürme +1, ölme -1, suicide -2, hasar ±0.02. Yakınlık ve nişan ödülü yok.
+- [ ] PyTorch PPO + GAE: grid için küçük CNN, vektör için MLP, iki agent tek ağ (self-play), grad norm 0.5-1.
+- [ ] Worker process'leri (her biri birkaç env) + merkezi toplu inference.
+- [ ] Rakip: kendisi, iki ajan random weights ile başlar. Kural tabanlı bot zorunlu değil.
 
 Kabul ölçütü: politika random politikayı ve kendi eski checkpoint'lerini belirgin farkla yener. İsabet oranı yalnızca ölçülür, ödüle girmez.
 
-## Faz 3: Tam oyun ve self-play
+## Faz 4: Tam oyun ve self-play
 
-- [ ] Tam harita, tüm silahlar, pickup'lar (can, zırh, silah).
-- [ ] Checkpoint havuzu: rakip örnekleme (%80 son, %20 eski), Elo takibi.
-- [ ] İsteğe bağlı GRU (hook ve mermi dinamiği için).
+- [ ] Silah değişimi (aksiyon + mevcut silah özellikleri), pickup'lar, daha büyük haritalar.
+- [ ] Checkpoint havuzu: rakip örnekleme (%80 son, %20 eski), Elo takibi, champion.
+- [ ] Görüş dışı rakip için hafıza: GRU veya frame stacking.
 - [ ] Hasar yardımcı ödülünün etkisini ölç (açık/kapalı karşılaştırma).
 
 Kabul ölçütü: yeni checkpoint eski havuza karşı kararlı biçimde kazanır, politika çökmesi yok.
 
-## Faz 4: İzleme ve değerlendirme
+## Faz 5: İzleme ve değerlendirme
 
-- [ ] `sv_rl_mode` kapalı, normal hızda server; insan client ile bağlanıp politikayı izle.
+- [x] Canlı spectator (SSH relay) ve demo kaydı: [WATCH.md](WATCH.md).
+- [ ] Politikayı normal hızda oynatan izleme modu, insan karşısında oyun.
 - [ ] Maç kayıtları, skor ve davranış metrikleri (isabet oranı, hook kullanımı, kaçınma).
 
 ## Açık riskler

@@ -1,0 +1,17 @@
+# back to back on the same box, load average 10.7 to 14.8 (other users), lms1, random actions, K=2
+# phase1 = rl/watch server + Phase 1 rollout, one Python process per env
+# phase2 multi = rl/phase2 server + bench/run_env_bench.py, one Python process per env
+# phase2 single = one Python process stepping a VecTeeworldsEnv of all envs
+phase,layout,envs,total_ticks_per_s,step_latency_us_p50,step_latency_us_p99,server_us_per_tick
+1,multi,1,37636,37.3,88.0,9.17
+2,multi,1,30036,60.0,110.8,11.67
+2,single,1,29944,57.4,139.0,11.67
+1,multi,4,119538,45.2,114.1,10.0
+2,multi,4,94653,71.2,263.9,13.33
+2,single,4,54670,99.0,1107.9,12.71
+1,multi,8,183594,54.3,431.1,11.67
+2,multi,8,141377,87.2,962.6,14.58
+2,single,8,84947,127.6,1605.5,12.5
+1,multi,12,212709,56.5,1171.9,11.67
+2,multi,12,164822,92.6,1604.6,15.69
+2,single,12,90660,165.9,2551.8,13.06

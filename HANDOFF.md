@@ -6,7 +6,7 @@ Bu repo bir Claude Code oturumunda yapılan analizin çıktısıdır. Yeni bir o
 
 - Analiz bitti: Teeworlds 0.7.5 server ([README.md](README.md) Bölüm 1) ve tmlp (Bölüm 2).
 - Mimari önerisi hazır (Bölüm 3), faz planı [PLAN.md](PLAN.md).
-- Faz 0 ve Faz 1 bitti: patch'ler [patches/](patches/) (`git am patches/*.patch`), sonuçlar [PLAN.md](PLAN.md). Faz 2'ye geçmeden önce kullanıcıdan açık onay al.
+- Faz 0, 1 ve 2 bitti: patch'ler [patches/](patches/) (`git am patches/*.patch`), ortam şartnamesi [ENVIRONMENT.md](ENVIRONMENT.md), sonuçlar [PLAN.md](PLAN.md). Faz 3'e (PPO) geçmeden önce kullanıcıdan açık onay al.
 
 ## Çalışma ortamı
 
@@ -34,6 +34,6 @@ Oturum olmadan da devam edilebilir: bu repo yeterli bağlamı taşır.
 
 ## Sonraki adım
 
-Önce kullanıcının Mac'inden random agent maçını spectator olarak güvenli izleme konusu (server dışarı açılmayacak). Sonra Faz 2 ([PLAN.md](PLAN.md)). Kullanıcı onayı olmadan başlama.
+Maç izleme hazır: [WATCH.md](WATCH.md). Sonraki: Faz 3 ([PLAN.md](PLAN.md)). Kullanıcı onayı olmadan başlama.
 
-Testler: `TWRL_SERVER_DIR=<build-release> python3 tests/test_env.py -v`.
+Python ortamı numpy istiyor: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`. Testler: `TWRL_SERVER_DIR=<build-release> .venv/bin/python tests/test_env.py -v`.

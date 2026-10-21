@@ -1,0 +1,136 @@
+{
+ "config": {
+  "server_dir": "../teeworlds-0.7.5/build-release",
+  "envs": 8,
+  "steps": 150000,
+  "map": "lms1",
+  "mode": 2,
+  "policy": "chase",
+  "action_ticks": 2,
+  "episode_ticks": 3000,
+  "seed": 1,
+  "rss_every": 25000,
+  "out": "bench/results/2026-10-19-phase2-long-chase-lms1.json"
+ },
+ "load1": 4.70751953125,
+ "wall_s": 39.29,
+ "episodes": 800,
+ "vector_steps": 150000,
+ "ticks": 2400000,
+ "total_ticks_per_s": 61084,
+ "ticks_per_s_per_env": 7635,
+ "agent_steps_per_s": 61084,
+ "vector_step_latency_us_p50": 119.5,
+ "vector_step_latency_us_p99": 372.7,
+ "server_us_per_tick": 11.029,
+ "obs_payload_bytes": 2340,
+ "totals": {
+  "kills": 1616,
+  "deaths": 1616,
+  "suicides": 0,
+  "damage_dealt": 19844,
+  "damage_taken": 19844
+ },
+ "violations": {
+  "score": 0,
+  "damage_pair": 0,
+  "kill_pair": 0,
+  "not_finite": 0,
+  "out_of_range": 0,
+  "reset_state": 0
+ },
+ "server_rss_kb": [
+  [
+   0,
+   [
+    15312,
+    15312,
+    15228,
+    15164,
+    15208,
+    15308,
+    15188,
+    15300
+   ]
+  ],
+  [
+   25000,
+   [
+    15312,
+    15312,
+    15304,
+    15308,
+    15336,
+    15308,
+    15316,
+    15300
+   ]
+  ],
+  [
+   50000,
+   [
+    15312,
+    15312,
+    15304,
+    15308,
+    15336,
+    15308,
+    15316,
+    15300
+   ]
+  ],
+  [
+   75000,
+   [
+    15312,
+    15312,
+    15304,
+    15308,
+    15336,
+    15308,
+    15316,
+    15300
+   ]
+  ],
+  [
+   100000,
+   [
+    15312,
+    15312,
+    15304,
+    15308,
+    15336,
+    15308,
+    15316,
+    15300
+   ]
+  ],
+  [
+   125000,
+   [
+    15312,
+    15312,
+    15304,
+    15308,
+    15336,
+    15308,
+    15316,
+    15300
+   ]
+  ],
+  [
+   149999,
+   [
+    15312,
+    15312,
+    15304,
+    15308,
+    15336,
+    15308,
+    15316,
+    15300
+   ]
+  ]
+ ],
+ "python_maxrss_kb": 43680
+}
