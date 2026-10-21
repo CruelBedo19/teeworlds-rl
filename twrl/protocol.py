@@ -1,4 +1,4 @@
-"""Wire format of the teeworlds_srv RL bridge (src/game/server/rlenv.h, protocol version 3).
+"""Wire format of the teeworlds_srv RL bridge (src/game/server/rlenv.h, protocol version 4).
 
 Every message is a 16 byte header followed by a payload, all little endian. The trainer sends
 RESET, STEP, CLOSE and DEBUG_KILL; the server answers each of them except CLOSE with OBS, or
@@ -11,7 +11,7 @@ import struct
 import numpy as np
 
 MAGIC = 0x4C525754  # "TWRL"
-VERSION = 3
+VERSION = 4
 
 MSG_HELLO = 1
 MSG_RESET = 2
@@ -49,10 +49,10 @@ ACTION = struct.Struct("<6i")  # direction, jump, fire, hook, target_x, target_y
 ERROR = struct.Struct("<I64s")  # code, message
 DEBUG_KILL = struct.Struct("<I")  # agent index
 
-EVENT_NAMES = ("kills", "deaths", "suicides", "damage_dealt", "damage_taken", "score", "shots")
+EVENT_NAMES = ("kills", "deaths", "suicides", "damage_dealt", "damage_taken", "score", "shots", "hook_launches", "dry_fires")
 
 AGENT_DTYPE = np.dtype([
-    ("events", "<i4", (7,)),  # EVENT_NAMES, counted since the previous OBS; score is the total
+    ("events", "<i4", (len(EVENT_NAMES),)),  # EVENT_NAMES, counted since the previous OBS; score is the total
     # privileged raw state for logging and tests, never an input to the policy
     ("pos", "<f4", (2,)), ("vel", "<f4", (2,)),
     ("alive", "<i4"), ("health", "<i4"), ("armor", "<i4"), ("weapon", "<i4"), ("ammo", "<i4"), ("hook_state", "<i4"),
@@ -67,7 +67,7 @@ OBS_DTYPE = np.dtype([
 OBS_SIZE = OBS_DTYPE.itemsize
 
 assert HEADER.size == 16 and HELLO.size == 76 and ACTION.size == 24 and ERROR.size == 68
-assert AGENT_DTYPE.itemsize == 28 + 40 + 4 * VEC_DIM + GRID_BYTES and OBS_SIZE == 20 + 2 * AGENT_DTYPE.itemsize
+assert AGENT_DTYPE.itemsize == 36 + 40 + 4 * VEC_DIM + GRID_BYTES and OBS_SIZE == 20 + 2 * AGENT_DTYPE.itemsize
 
 WEAPONS = ("hammer", "gun", "shotgun", "grenade", "laser", "ninja")
 HOOK_STATES = ("idle", "flying", "grabbed", "retracting")

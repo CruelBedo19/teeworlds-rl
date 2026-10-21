@@ -204,7 +204,8 @@ class PPOConfig:
         self.adv_norm = "batch"  # normalise advantages once over the whole batch ("minibatch": per minibatch)
         # Gaussian aim: "shots" trains the aim only on decisions where a shot actually left the gun (the aim
         # has no effect on the others), with its own clipped ratio; the other heads have their own ratio
-        # and see every decision. "all": one joint ratio over all heads on every decision.
+        # and see every decision. "shots+hooks": also where a hook was launched, the only moment the aim
+        # steers the hook. "all": one joint ratio over all heads on every decision.
         self.aim_mask = "shots"
         # Gaussian aim stabilisation. aim_lr_scale scales the learning rate of the aim's own parameters (its
         # rows of the output layer and log_std; the shared trunk keeps the full rate). aim_target_kl: once a
@@ -226,7 +227,8 @@ def flatten_agents(obs):
 
 
 CHECKPOINT_FORMAT = 3
-BEHAVIOUR = ("alive_steps", "visible_steps", "aim_cos_sum", "shots", "damage_dealt", "kills")  # learner sums
+BEHAVIOUR = ("alive_steps", "visible_steps", "aim_cos_sum", "shots", "damage_dealt", "kills", "fire_presses",
+             "shot_decisions", "hook_launch_decisions", "hook_only_decisions", "dry_fires")  # learner sums
 
 
 class Trainer:
@@ -286,6 +288,13 @@ class Trainer:
         events = infos["events"].reshape(-1, len(P.EVENT_NAMES))[self.rows]
         self.behaviour[4] += events[:, P.EVENT_NAMES.index("damage_dealt")].sum()
         self.behaviour[5] += events[:, P.EVENT_NAMES.index("kills")].sum()
+        shot = events[:, P.EVENT_NAMES.index("shots")] > 0
+        launch = events[:, P.EVENT_NAMES.index("hook_launches")] > 0
+        self.behaviour[6] += (alive & (env_actions.reshape(-1, 6)[self.rows, 2] == 1)).sum()
+        self.behaviour[7] += shot.sum()
+        self.behaviour[8] += launch.sum()
+        self.behaviour[9] += (launch & ~shot).sum()
+        self.behaviour[10] += events[:, P.EVENT_NAMES.index("dry_fires")].sum()
         agents = infos.get("agents")
         if agents is not None:
             ammo, live = agents["ammo"].reshape(-1)[self.rows], agents["alive"].reshape(-1)[self.rows]
@@ -326,9 +335,12 @@ class Trainer:
             ended = term | trunc
             self._track(v_all.numpy(), env_actions, infos, ended)
             r = torch.from_numpy(r.reshape(-1)[self.rows].copy())
-            # the shots of the ticks this decision covered: where the aim actually mattered
-            shots = infos["events"][..., P.EVENT_NAMES.index("shots")].reshape(-1)[self.rows]
-            aim_mask[t] = torch.from_numpy((shots > 0).astype(np.float32))
+            # the shots (and hook launches) of the ticks this decision covered: where the aim actually mattered
+            ev = infos["events"].reshape(-1, len(P.EVENT_NAMES))[self.rows]
+            used = ev[:, P.EVENT_NAMES.index("shots")] > 0
+            if cfg.aim_mask == "shots+hooks":
+                used |= ev[:, P.EVENT_NAMES.index("hook_launches")] > 0
+            aim_mask[t] = torch.from_numpy(used.astype(np.float32))
             done = np.repeat(ended, 2)[self.rows]
             self.episode_events += infos["events"]
             if "final_index" in infos:
@@ -369,7 +381,7 @@ class Trainer:
                 "adv": adv.reshape(-1), "returns": (adv + values).reshape(-1), "rewards": rewards, "entropy": ent.mean().item()}
 
     def masked_aim(self):
-        return self.policy.gaussian and self.cfg.aim_mask == "shots"
+        return self.policy.gaussian and self.cfg.aim_mask in ("shots", "shots+hooks")
 
     def losses(self, batch, mb, adv, aim_weight=1.0):
         """PPO loss terms for minibatch `mb` with advantages `adv`; also used by tests and audits.

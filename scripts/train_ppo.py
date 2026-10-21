@@ -62,13 +62,15 @@ def main():
     ap.add_argument("--aim-lr-scale", type=float, default=1.0, help="Gaussian aim: learning rate of the aim's own parameters, relative to the PPO rate")
     ap.add_argument("--aim-target-kl", type=float, default=None,
                     help="Gaussian aim: switch the aim loss off for the rest of an update once a minibatch's aim KL passes 1.5x this")
+    ap.add_argument("--aim-mask", choices=("shots", "shots+hooks"), default="shots",
+                    help="Gaussian aim: decisions the aim learns from, those with a shot or also those with a hook launch")
     a = ap.parse_args()
 
     run_dir = a.run_dir or os.path.join("runs", time.strftime("ppo-%Y%m%d-%H%M%S"))
     os.makedirs(run_dir, exist_ok=True)
     torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
-    cfg = PPOConfig(num_envs=a.envs, steps=a.steps, aim_lr_scale=a.aim_lr_scale, aim_target_kl=a.aim_target_kl)
+    cfg = PPOConfig(num_envs=a.envs, steps=a.steps, aim_lr_scale=a.aim_lr_scale, aim_target_kl=a.aim_target_kl, aim_mask=a.aim_mask)
     resume = torch.load(a.resume, map_location="cpu", weights_only=False) if a.resume else None
     if resume:
         saved = resume.get("args", {})
@@ -125,7 +127,8 @@ def main():
                    "episodes": len(finished), **stats,
                    "visible_frac": beh["visible_steps"] / max(beh["alive_steps"], 1),
                    "aim_cos": beh["aim_cos_sum"] / max(beh["visible_steps"], 1),
-                   "shots": beh["shots"], "hit_rate": beh["damage_dealt"] / max(beh["shots"], 1), "step_kills": beh["kills"]}
+                   "shots": beh["shots"], "hit_rate": beh["damage_dealt"] / max(beh["shots"], 1), "step_kills": beh["kills"],
+                   **{k: beh[k] for k in ("fire_presses", "shot_decisions", "hook_launch_decisions", "hook_only_decisions", "dry_fires")}}
             if len(finished):
                 if opponent is None:
                     row.update({"ep_" + k: float(v) for k, v in zip(EVENT_NAMES[:5], finished.reshape(-1, len(EVENT_NAMES))[:, :5].mean(axis=0))})

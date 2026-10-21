@@ -398,14 +398,19 @@ def signal_report(rec, sp, hits, batches, trainer, policy, cfg):
         x = towards[m]
         return {"n": int(m.sum()), "mean": float(x.mean()), "rms": float(np.sqrt((x ** 2).mean())),
                 "per_update_signal": float(x.sum() * per_batch), "per_update_noise_sd": float(x.std() * math.sqrt(m.sum() * per_batch))}
-    # hook launches also use the target vector: hook pressed while the hook is idle
-    hook_launch = ((acts[..., 3] == 1) & (a_now["hook_state"] == 0))[idx]
+    # hook launches also use the target vector: counted by the server (protocol 4), else hook pressed while idle
+    if "hook_launches" in P.EVENT_NAMES:
+        hook_launch = (np.stack([s["events"][..., P.EVENT_NAMES.index("hook_launches")] for s in rec.steps]) > 0)[idx]
+    else:
+        hook_launch = ((acts[..., 3] == 1) & (a_now["hook_state"] == 0))[idx]
     out["aim_gradient_towards_opponent"] = {"from_shot_decisions": part(shot_i), "from_other_decisions": part(~shot_i),
                                             "from_hook_launch_non_shot": part(~shot_i & hook_launch),
                                             "from_rest_non_shot": part(~shot_i & ~hook_launch)}
     allx = towards
     out["aim_gradient_towards_opponent"]["all_per_update_snr"] = float(allx.sum() * per_batch / (allx.std() * math.sqrt(len(allx) * per_batch)))
     out["aim_gradient_towards_opponent"]["shot_only_per_update_snr"] = float(towards[shot_i].sum() * per_batch / (towards[shot_i].std() * math.sqrt(shot_i.sum() * per_batch)))
+    used = shot_i | hook_launch
+    out["aim_gradient_towards_opponent"]["shot_or_hook_per_update_snr"] = float(towards[used].sum() * per_batch / (towards[used].std() * math.sqrt(used.sum() * per_batch)))
     return out, adv, adv_norm, cos, is_hit
 
 

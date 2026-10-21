@@ -234,6 +234,55 @@ class TestBasics(unittest.TestCase):
         self.assertEqual(obs["vec"][1, V["hook_idle"]], 1.0)
         self.assertLess(obs["vec"][0, V["hook_dy"]], 0.0)
 
+    def test_hook_launch_is_counted_once_per_launch(self):
+        # the hook leaves only from the idle state: holding the button keeps it out (flying, grabbed or
+        # retracted) and launches nothing more; releasing makes it idle and the next press launches again
+        self.env.reset(seed=1)
+        L = P.EVENT_NAMES.index("hook_launches")
+        hold = [1] * 12 + [0] + [1] * 3 + [0, 0]
+        launches = []
+        for h in hold:
+            obs, _, _, _, info = self.env.step([Action(hook=h, target_x=0, target_y=-256), Action()])
+            launches.append(int(info["events"][0, L]))
+        self.assertEqual(launches, [1] + [0] * 11 + [0] + [1, 0, 0] + [0, 0])
+        self.assertEqual(info["events"][1, L], 0)
+
+    def test_hook_launch_matches_idle_state_and_press(self):
+        # a launch happens exactly when the hook is idle at the decision and the button is down
+        obs, info = self.env.reset(seed=2)
+        L = P.EVENT_NAMES.index("hook_launches")
+        rng = np.random.default_rng(0)
+        n = 0
+        for _ in range(300):
+            idle = obs["vec"][0, V["hook_idle"]] == 1.0 and obs["vec"][0, V["alive"]] > 0
+            h = int(rng.random() < 0.4)
+            obs, _, _, _, info = self.env.step([Action(hook=h, direction=int(rng.integers(-1, 2)), jump=int(rng.random() < 0.1),
+                                                       target_x=int(rng.integers(-256, 257)), target_y=int(rng.integers(-256, 257)) or 1),
+                                                Action()])
+            if obs["vec"][0, V["alive"]] > 0:
+                self.assertEqual(info["events"][0, L], int(idle and h), _)
+            n += info["events"][0, L]
+        self.assertGreater(n, 20)
+
+    def test_dry_fire_is_a_press_on_an_empty_gun(self):
+        obs, info = self.env.reset(seed=1)
+        S, D = P.EVENT_NAMES.index("shots"), P.EVENT_NAMES.index("dry_fires")
+        shots = dry = 0
+        for _ in range(60):
+            ammo = info["agents"]["ammo"][0]
+            obs, _, _, _, info = self.env.step([Action(fire=1, target_x=256, target_y=0), Action()])
+            self.assertLessEqual(info["events"][0, S] + info["events"][0, D], 1)
+            if info["events"][0, D]:
+                self.assertEqual(ammo, 0)
+            shots += info["events"][0, S]
+            dry += info["events"][0, D]
+        self.assertEqual(shots, 10)  # the magazine; pressing on the empty gun keeps the refill back
+        # every press restarts the 125 ms delay, so of the 30 presses after the magazine about one in three
+        # finds the timer run out; the others fall into the delay and do nothing at all
+        self.assertGreaterEqual(dry, 8)
+        self.assertLessEqual(dry, 12)
+        self.assertEqual(info["events"][1, D], 0)
+
     def test_debug_kill_is_a_suicide(self):
         self.env.reset(seed=1)
         self.env.step([Action(), Action()])

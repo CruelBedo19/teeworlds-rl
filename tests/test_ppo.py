@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from twrl import VecTeeworldsEnv  # noqa: E402
 from twrl import protocol as P  # noqa: E402
-from twrl.ppo import (AIM_BINS, DISCRETE, HEADS, Policy, PPOConfig, Trainer, gaussian_env_actions, load_policy,  # noqa: E402
+from twrl.ppo import (AIM_BINS, BEHAVIOUR, DISCRETE, HEADS, Policy, PPOConfig, Trainer, gaussian_env_actions, load_policy,  # noqa: E402
                       save_checkpoint, to_env_actions)
 
 SERVER_DIR = os.environ.get("TWRL_SERVER_DIR")
@@ -391,10 +391,32 @@ class TestTrainingLoop(unittest.TestCase):
             # the aim mask marks exactly the learner decisions with a shot, and a shot needs fire=1
             self.assertGreater(batch["aim_mask"].sum().item(), 0)
             self.assertTrue(torch.all(batch["actions"][batch["aim_mask"] == 1, 2] == 1))
-            alive, visible, _, shots, _, _ = trainer.behaviour
-            self.assertGreater(alive, 0)
-            self.assertLessEqual(visible, alive)
-            self.assertGreater(shots, 0)
+            beh = dict(zip(BEHAVIOUR, trainer.behaviour))
+            self.assertGreater(beh["alive_steps"], 0)
+            self.assertLessEqual(beh["visible_steps"], beh["alive_steps"])
+            self.assertGreater(beh["shots"], 0)
+
+    def test_aim_mask_with_hook_launches(self):
+        # the same rollout under both masks: "shots+hooks" adds exactly the hook-launch decisions without a
+        # shot, each of them with hook=1; the shot decisions stay as they were
+        masks = {}
+        for mode in ("shots", "shots+hooks"):
+            torch.manual_seed(0)
+            with VecTeeworldsEnv(4, SERVER_DIR, seed=3, map="lms1", grid_format="codes", episode_ticks=100, raw_info=True) as venv:
+                learner = Policy(aim="gaussian")
+                opponent = Policy(aim="gaussian")
+                opponent.load_state_dict(learner.state_dict())
+                trainer = Trainer(venv, learner, PPOConfig(num_envs=4, steps=64, aim_mask=mode), opponent=opponent)
+                batch = trainer.collect()
+                masks[mode] = (batch["aim_mask"], batch["actions"], dict(zip(BEHAVIOUR, trainer.behaviour)))
+        (shot_mask, actions, beh), (both_mask, actions2, _) = masks["shots"], masks["shots+hooks"]
+        torch.testing.assert_close(actions, actions2)
+        self.assertTrue(torch.all(both_mask >= shot_mask))
+        extra = (both_mask - shot_mask) == 1
+        self.assertEqual(extra.sum().item(), beh["hook_only_decisions"])
+        self.assertGreater(extra.sum().item(), 0)
+        self.assertTrue(torch.all(actions[extra, 3] == 1))
+        self.assertEqual(shot_mask.sum().item(), beh["shot_decisions"])
 
 
 @unittest.skipUnless(SERVER_DIR, "set TWRL_SERVER_DIR to a build directory with teeworlds_srv")
