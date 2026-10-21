@@ -1,0 +1,93 @@
+{
+ "rules": {
+  "grad_norm_max_above": 20.0,
+  "aim_kl_window": 20,
+  "aim_kl_mean_above": 0.05,
+  "aim_kl_after_steps": 500000,
+  "entropy_below": 1.0,
+  "log_std_below": -4.5,
+  "no_shots_updates": 50,
+  "stale_minutes": 10
+ },
+ "train_args": [
+  "--envs",
+  "32",
+  "--updates",
+  "1221",
+  "--max-minutes",
+  "100",
+  "--checkpoint-steps",
+  "250000",
+  "--aim",
+  "gaussian",
+  "--seed",
+  "1",
+  "--threads",
+  "6",
+  "--compile",
+  "--opponent",
+  "initial",
+  "--aim-target-kl",
+  "0.015"
+ ],
+ "eval_at": [
+  500000,
+  1000000,
+  1500000,
+  2000000,
+  3000000,
+  4000000,
+  5000000
+ ],
+ "started": "2026-10-21 00:02:28",
+ "stop_reason": null,
+ "train_pid": 2756044,
+ "evals": {
+  "ckpt_0000": {
+   "exit": 1,
+   "checkpoint": "ckpt_0000.pt",
+   "finished": "2026-10-21 00:02:58"
+  },
+  "at_500000": {
+   "exit": 0,
+   "checkpoint": "ckpt_0123.pt",
+   "finished": "2026-10-21 00:10:58"
+  },
+  "at_1000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_0245.pt",
+   "finished": "2026-10-21 00:13:58"
+  },
+  "at_1500000": {
+   "exit": 0,
+   "checkpoint": "ckpt_0367.pt",
+   "finished": "2026-10-21 00:16:58"
+  },
+  "at_2000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_0489.pt",
+   "finished": "2026-10-21 00:19:59"
+  },
+  "at_3000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_0733.pt",
+   "finished": "2026-10-21 00:24:59"
+  },
+  "at_4000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_0977.pt",
+   "finished": "2026-10-21 00:29:59"
+  },
+  "at_5000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_1221.pt",
+   "finished": "2026-10-21 00:34:59"
+  }
+ },
+ "train_exit": 0,
+ "finished": "2026-10-21 00:34:59",
+ "updates": 1221,
+ "agent_steps": 5001216,
+ "train_minutes": 29.74,
+ "not_reached": []
+}

@@ -1,0 +1,8 @@
+2026-10-21 00:44:50 test_ppo exit 0
+2026-10-21 00:45:18 test_env exit 0
+2026-10-21 00:45:19 test_relay exit 0
+2026-10-21 00:45:19 gtest exit 0
+2026-10-21 00:45:57 determinism vs learn-5m-kl015 first 30 updates: 1
+2026-10-21 00:45:57 start bounded (seed 1) and seed 2 (raw)
+2026-10-21 02:41:29 both pipelines finished
+2026-10-21 02:47:21 exp2 done

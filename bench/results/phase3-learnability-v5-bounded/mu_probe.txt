@@ -1,0 +1,9 @@
+-bounded ckpt_0000.pt mean [ 0.001 -0.001] median|mu| 0.002 std [0.607 0.607] median angular-noise 90 deg
+-bounded ckpt_0123.pt mean [ 0.035 -0.435] median|mu| 0.537 std [0.59  0.573] median angular-noise 47 deg
+-bounded ckpt_0489.pt mean [ 0.469 -0.155] median|mu| 0.587 std [0.479 0.449] median angular-noise 38 deg
+-bounded ckpt_0977.pt mean [ 0.168 -0.149] median|mu| 0.542 std [0.388 0.354] median angular-noise 34 deg
+-bounded ckpt_1221.pt mean [-0.074  0.103] median|mu| 0.484 std [0.369 0.328] median angular-noise 36 deg
+5m-seed2 ckpt_0489.pt mean [0.605 0.21 ] median|mu| 0.695 std [0.489 0.474] median angular-noise 35 deg
+5m-seed2 ckpt_1221.pt mean [ 1.314 -0.051] median|mu| 1.246 std [0.379 0.381] median angular-noise 17 deg
+5m-kl015 ckpt_0489.pt mean [ 1.766 -0.304] median|mu| 1.720 std [0.519 0.508] median angular-noise 17 deg
+5m-kl015 ckpt_1221.pt mean [3.273 1.381] median|mu| 3.247 std [0.45  0.436] median angular-noise 8 deg

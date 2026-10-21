@@ -1,0 +1,9 @@
+bench/flee_probe.py (learner side 0 vs ckpt_0000, eval seed 9001, 16 episodes; visible decisions)
+ckpt_0000 moving 0.656 away 0.493 towards 0.504 aim_x_with_move 0.504 aim_x_towards_opp 0.500 aim_up 0.497 opp_above 0.466
+ckpt_0489 (2M) moving 0.606 away 0.533 towards 0.466 aim_x_with_move 0.357 aim_x_towards_opp 0.616 aim_up 0.654 opp_above 0.593
+ckpt_1221 (5M) moving 0.642 away 0.520 towards 0.473 aim_x_with_move 0.512 aim_x_towards_opp 0.132 aim_up 0.009 opp_above 0.512
+
+Raw aim mean over 160 states from random play (env seed 77):
+ckpt_0000 mean [0.001 -0.002] sd over states [0.002 0.001] median |mu| 0.002 std 0.607
+ckpt_0489 mean [1.751 -0.212] sd over states [0.694 0.166] median |mu| 1.614 std 0.519/0.508
+ckpt_1221 mean [2.947  1.626] sd over states [1.400 0.555] median |mu| 3.067 std 0.450/0.436
