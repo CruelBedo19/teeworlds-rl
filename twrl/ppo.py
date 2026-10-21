@@ -180,6 +180,12 @@ class Policy(nn.Module):
             aim_ent = d.entropy().sum(-1)
         return logp, ent, value, aim_ent, aim_logp
 
+    def head_probs(self, vec, codes):
+        """Probabilities of the discrete heads (direction, jump, fire, hook), without gradient."""
+        with torch.no_grad():
+            logits, _ = self._split(self(vec, codes)[0])
+        return [torch.softmax(chunk, dim=-1) for chunk in logits]
+
     def env_actions(self, actions):
         """(..., action_dim) actions as numpy -> (..., 6) int32 env actions."""
         if self.gaussian:
@@ -379,6 +385,22 @@ class Trainer:
                 "actions": actions.reshape(T * b, -1), "logp": logp.reshape(-1), "values": values.reshape(-1),
                 "aim_logp": aim_logp.reshape(-1), "aim_mask": aim_mask.reshape(-1),
                 "adv": adv.reshape(-1), "returns": (adv + values).reshape(-1), "rewards": rewards, "entropy": ent.mean().item()}
+
+    def head_stats(self, batch):
+        """Per-head entropy and the fire probability by situation over a collected batch (measurement only:
+        one extra forward pass without gradient, no random numbers)."""
+        probs = self.policy.head_probs(batch["vec"], batch["codes"])
+        out = {f"entropy_{h}": torch.distributions.Categorical(probs=p).entropy().mean().item()
+               for h, p in zip(("direction", "jump", "fire", "hook"), probs)}
+        v, p_fire = batch["vec"], probs[2][:, 1]
+        alive = v[:, P.VEC_INDEX["alive"]] > 0
+        ready = alive & (v[:, P.VEC_INDEX["ammo"]] > 0) & (v[:, P.VEC_INDEX["reload"]] <= 0)
+        visible = alive & (v[:, P.VEC_INDEX["opp_visible"]] > 0)
+        los = visible & (v[:, P.VEC_INDEX["opp_line_of_fire"]] > 0)
+        for name, m in (("", alive), ("_los_ready", los & ready), ("_invisible_ready", ~visible & ready & alive),
+                        ("_empty", alive & (v[:, P.VEC_INDEX["ammo"]] <= 0))):
+            out["p_fire" + name] = p_fire[m].mean().item() if m.any() else None
+        return out
 
     def masked_aim(self):
         return self.policy.gaussian and self.cfg.aim_mask in ("shots", "shots+hooks")

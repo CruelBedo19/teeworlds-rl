@@ -115,6 +115,7 @@ def main():
             t0 = time.time()
             batch = trainer.collect()
             t1 = time.time()
+            heads = trainer.head_stats(batch)  # the policy that collected the batch
             stats = trainer.train(batch)
             t2 = time.time()
             finished = np.array(trainer.finished) if trainer.finished else np.zeros((0, 2, len(EVENT_NAMES)))
@@ -124,7 +125,7 @@ def main():
             row = {"update": trainer.update, "agent_steps": trainer.agent_steps, "minutes": round((time.time() - start) / 60, 2),
                    "collect_s": round(t1 - t0, 2), "train_s": round(t2 - t1, 2),
                    "reward_per_step": batch["rewards"].mean().item(), "rollout_entropy": batch["entropy"],
-                   "episodes": len(finished), **stats,
+                   "episodes": len(finished), **stats, **heads,
                    "visible_frac": beh["visible_steps"] / max(beh["alive_steps"], 1),
                    "aim_cos": beh["aim_cos_sum"] / max(beh["visible_steps"], 1),
                    "shots": beh["shots"], "hit_rate": beh["damage_dealt"] / max(beh["shots"], 1), "step_kills": beh["kills"],

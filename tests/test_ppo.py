@@ -396,6 +396,19 @@ class TestTrainingLoop(unittest.TestCase):
             self.assertLessEqual(beh["visible_steps"], beh["alive_steps"])
             self.assertGreater(beh["shots"], 0)
 
+    def test_head_stats(self):
+        torch.manual_seed(0)
+        with VecTeeworldsEnv(2, SERVER_DIR, seed=3, map="lms1", grid_format="codes", episode_ticks=100) as venv:
+            trainer = Trainer(venv, Policy(aim="gaussian"), PPOConfig(num_envs=2, steps=64))
+            batch = trainer.collect()
+            before = [p.detach().clone() for p in trainer.policy.parameters()]
+            h = trainer.head_stats(batch)
+        for name, k in (("direction", 3), ("jump", 2), ("fire", 2), ("hook", 2)):
+            self.assertGreater(h["entropy_" + name], 0)
+            self.assertLessEqual(h["entropy_" + name], math.log(k) + 1e-6)
+        self.assertTrue(0 < h["p_fire"] < 1)
+        self.assertTrue(all(torch.equal(a, b) for a, b in zip(before, trainer.policy.parameters())))
+
     def test_aim_mask_with_hook_launches(self):
         # the same rollout under both masks: "shots+hooks" adds exactly the hook-launch decisions without a
         # shot, each of them with hook=1; the shot decisions stay as they were

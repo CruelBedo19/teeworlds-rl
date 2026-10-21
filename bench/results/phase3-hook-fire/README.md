@@ -96,3 +96,28 @@ Reading:
 - A gun hit does 1 damage, and the policy cannot switch weapons, so a kill takes 10 hits on a player
   with full health and no armour. At 1-3 hits per episode kills, and with them wins, are out of reach
   for these policies; the reward is almost entirely the +-0.02 damage terms.
+
+## Fire head: policy gradient against the entropy bonus (`fire_head_probe.json`)
+
+Question: does the categorical entropy bonus (ent_coef 0.01) hold the fire probability near 0.5?
+`bench/fire_head_probe.py` collects 20 training batches per checkpoint (as the trainer does, against
+ckpt_0000) and compares, for the fire head's logit, the policy-gradient derivative adv * (a - p) with
+the entropy bonus's -ent_coef * z * p * (1 - p).
+
+- The entropy bonus is not what holds it. Over all decisions its push is 1e-4 to 7e-4 per decision,
+  against a policy-gradient push of 1e-3 to 3e-3 whose noise per update is a further 2-10 times
+  larger (signal over noise per update -0.34 to +0.49). The bonus is 10-50 times below the noise.
+- The policy gradient on the fire head has no consistent direction. Its sign agrees with its own
+  mean in 40-75 % of the batches, in every situation. In the line of fire with a ready gun, the
+  advantage after pressing differs from the advantage after not pressing by 1-2 standard errors, with
+  the sign changing between checkpoints. On an empty gun the gap is significant but flips: -0.08 at 2M
+  and +0.05 at 5M of the bounded run (standard error 0.007).
+- p(fire) does depend on the state (standard deviation over states 0.16-0.29 after training), but not
+  along the line-of-fire / ready axis.
+- Why: one shot is worth about hit rate x 0.02 = 3e-4 in expected reward, and a dry fire costs a
+  fraction of a later shot. Both are far below the noise of the returns, so the fire decision gets
+  almost no credit until the aim makes shots hit.
+
+The per-head entropies and p(fire) by situation are now logged in every training row (`entropy_fire`,
+`p_fire_los_ready`, ...). With them on, the first 30 updates of the bounded run are still reproduced
+bit for bit.
