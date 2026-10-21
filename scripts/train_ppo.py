@@ -64,6 +64,8 @@ def main():
                     help="Gaussian aim: switch the aim loss off for the rest of an update once a minibatch's aim KL passes 1.5x this")
     ap.add_argument("--aim-mask", choices=("shots", "shots+hooks"), default="shots",
                     help="Gaussian aim: decisions the aim learns from, those with a shot or also those with a hook launch")
+    ap.add_argument("--env-timeout", type=float, default=30.0,
+                    help="seconds a server waits for the trainer (and the trainer for a server) before giving up")
     a = ap.parse_args()
 
     run_dir = a.run_dir or os.path.join("runs", time.strftime("ppo-%Y%m%d-%H%M%S"))
@@ -95,7 +97,8 @@ def main():
     initial = os.path.join(run_dir, "ckpt_0000.pt")
     if a.opponent and not resume and a.opponent != "initial":
         sys.exit("a new run takes --opponent initial; other checkpoints only make sense with --resume or by path")
-    with VecTeeworldsEnv(a.envs, a.server_dir, seed=a.seed, map=a.map, grid_format="codes", raw_info=True) as venv:
+    with VecTeeworldsEnv(a.envs, a.server_dir, seed=a.seed, map=a.map, grid_format="codes", raw_info=True,
+                         timeout=a.env_timeout) as venv:
         opponent = None
         if a.opponent == "initial" and not resume:
             opponent = copy.deepcopy(policy)  # exactly the learner's starting network, which is ckpt_0000.pt
