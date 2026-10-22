@@ -1,0 +1,14 @@
+2026-10-21 20:18:49 start seeds 1 2 3
+2026-10-21 21:47:05 rerun start seeds 1 3 (env timeout 600 s)
+2026-10-21 22:04:51 pipelines finished
+2026-10-21 22:17:11 done
+2026-10-21 22:17:14 rerun2 start seed 2 (env timeout 600 s)
+2026-10-21 22:29:52 run3 start seeds 1 2 3 (env timeout 600 s, max 1500 min)
+2026-10-21 22:50:25 seq start (seeds 1 2 3 one after another)
+2026-10-21 22:50:25 seq seed1 start
+2026-10-21 23:26:27 seq seed1 done exit 0
+2026-10-21 23:26:27 seq seed2 start
+2026-10-22 00:02:28 seq seed2 done exit 0
+2026-10-22 00:02:28 seq seed3 start
+2026-10-22 00:37:00 seq seed3 done exit 0
+2026-10-22 00:54:38 seq done
