@@ -46,6 +46,7 @@ def main():
     ap.add_argument("--map", default="lms1")
     ap.add_argument("--envs", type=int, default=8)
     ap.add_argument("--steps", type=int, default=128)
+    ap.add_argument("--minibatch", type=int, default=512, help="decisions per PPO minibatch")
     ap.add_argument("--updates", type=int, default=200)
     ap.add_argument("--max-minutes", type=float, default=20.0)
     ap.add_argument("--checkpoint-every", type=int, default=50, help="updates between checkpoints")
@@ -72,7 +73,7 @@ def main():
     os.makedirs(run_dir, exist_ok=True)
     torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
-    cfg = PPOConfig(num_envs=a.envs, steps=a.steps, aim_lr_scale=a.aim_lr_scale, aim_target_kl=a.aim_target_kl, aim_mask=a.aim_mask)
+    cfg = PPOConfig(num_envs=a.envs, steps=a.steps, minibatch=a.minibatch, aim_lr_scale=a.aim_lr_scale, aim_target_kl=a.aim_target_kl, aim_mask=a.aim_mask)
     resume = torch.load(a.resume, map_location="cpu", weights_only=False) if a.resume else None
     if resume:
         saved = resume.get("args", {})
