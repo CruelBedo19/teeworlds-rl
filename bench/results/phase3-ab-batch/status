@@ -1,0 +1,8 @@
+2026-10-23 17:39:05 seq start (seeds 1 2 3 one after another)
+2026-10-23 17:39:05 seq seed1 start
+2026-10-23 18:18:07 seq seed1 done exit 0
+2026-10-23 18:18:07 seq seed2 start
+2026-10-23 18:56:08 seq seed2 done exit 0
+2026-10-23 18:56:08 seq seed3 start
+2026-10-23 19:33:10 seq seed3 done exit 0
+2026-10-23 19:40:59 seq done
