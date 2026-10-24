@@ -35,6 +35,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from twrl import VecTeeworldsEnv  # noqa: E402
+from twrl.env import DEFAULT_REWARD_WEIGHTS  # noqa: E402
 from twrl.ppo import BEHAVIOUR, Policy, PPOConfig, Trainer, flatten_agents, load_policy, save_checkpoint  # noqa: E402
 from twrl.protocol import EVENT_NAMES  # noqa: E402
 
@@ -65,6 +66,8 @@ def main():
                     help="Gaussian aim: switch the aim loss off for the rest of an update once a minibatch's aim KL passes 1.5x this")
     ap.add_argument("--aim-mask", choices=("shots", "shots+hooks"), default="shots",
                     help="Gaussian aim: decisions the aim learns from, those with a shot or also those with a hook launch")
+    ap.add_argument("--dry-fire-penalty", type=float, default=0.0,
+                    help="reward per dry fire (a press on an empty gun, which restarts the ammo refill), subtracted")
     ap.add_argument("--env-timeout", type=float, default=30.0,
                     help="seconds a server waits for the trainer (and the trainer for a server) before giving up")
     a = ap.parse_args()
@@ -98,8 +101,9 @@ def main():
     initial = os.path.join(run_dir, "ckpt_0000.pt")
     if a.opponent and not resume and a.opponent != "initial":
         sys.exit("a new run takes --opponent initial; other checkpoints only make sense with --resume or by path")
+    weights = {**DEFAULT_REWARD_WEIGHTS, "dry_fires": -a.dry_fire_penalty} if a.dry_fire_penalty else None
     with VecTeeworldsEnv(a.envs, a.server_dir, seed=a.seed, map=a.map, grid_format="codes", raw_info=True,
-                         timeout=a.env_timeout) as venv:
+                         timeout=a.env_timeout, reward_weights=weights) as venv:
         opponent = None
         if a.opponent == "initial" and not resume:
             opponent = copy.deepcopy(policy)  # exactly the learner's starting network, which is ckpt_0000.pt

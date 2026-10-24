@@ -121,7 +121,12 @@ class TeeworldsEnv:
     def __init__(self, server_dir, map="dm1", mode=2, action_ticks=2, episode_ticks=3000, timeout=30.0,
                  debug=False, extra_commands=(), reward_weights=None, server_binary="teeworlds_srv", port=None):
         weights = DEFAULT_REWARD_WEIGHTS if reward_weights is None else reward_weights
-        self.reward_weights = np.array([weights.get(k, 0.0) for k in P.EVENT_NAMES[:5]], dtype=np.float32)
+        if weights.get("score", 0.0):
+            raise ValueError("score is not rewarded")
+        # the events after the first five (shots, hook launches, dry fires) only count when weighted, so the
+        # default reward is computed exactly as before
+        n = len(P.EVENT_NAMES) if any(weights.get(k, 0.0) for k in P.EVENT_NAMES[5:]) else 5
+        self.reward_weights = np.array([weights.get(k, 0.0) for k in P.EVENT_NAMES[:n]], dtype=np.float32)
         self.timeout = timeout
         self._seq = 0
         self._header = memoryview(bytearray(P.HEADER.size))
@@ -215,7 +220,7 @@ class TeeworldsEnv:
 
     def rewards(self, events):
         """events (..., 2, EVENT_NAMES) -> rewards (..., 2) with the env's weights; score is not rewarded."""
-        return events[..., :5].astype(np.float32) @ self.reward_weights
+        return events[..., :len(self.reward_weights)].astype(np.float32) @ self.reward_weights
 
     # -- split send/receive, so a vector of environments can step in parallel --
 
@@ -471,7 +476,7 @@ class VecTeeworldsEnv:
         if self.raw_info:
             infos["agents"] = self._agents.copy()  # belongs to the returned obs
         obs = {"vec": self._vec.copy(), "grid": self._grids()}
-        return obs, events[..., :5].astype(np.float32) @ self.reward_weights, terminated, truncated, infos
+        return obs, events[..., :len(self.reward_weights)].astype(np.float32) @ self.reward_weights, terminated, truncated, infos
 
     def close(self):
         for env in self.envs:
