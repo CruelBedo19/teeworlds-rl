@@ -1,0 +1,39 @@
+{
+ "checkpoint": "runs/phase3-ab-mask/seed1/ckpt_1221.pt",
+ "window": 20,
+ "batches": 16,
+ "empty_all": {
+  "gap": -0.07015477865934372,
+  "t": -7.671269416809082,
+  "n_press": 20261,
+  "n_not": 23511
+ },
+ "empty_damage_near": {
+  "gap": -0.250435471534729,
+  "t": -1.5122612714767456,
+  "n_press": 858,
+  "n_not": 1078
+ },
+ "empty_quiet": {
+  "gap": -0.05601298063993454,
+  "t": -11.684346199035645,
+  "n_press": 19403,
+  "n_not": 22433
+ },
+ "press_share_near": 0.4431818181818182,
+ "press_share_quiet": 0.4637871689454059,
+ "adv_near_minus_quiet": 1.6014457941055298,
+ "share_near": 0.04422918760851686,
+ "empty_run_to_round": {
+  "with_dry": {
+   "n": 3275,
+   "mean": 13.518473282442748,
+   "median": 13.0
+  },
+  "without_dry": {
+   "n": 206,
+   "mean": 6.742718446601942,
+   "median": 7.0
+  }
+ }
+}
