@@ -1,0 +1,30 @@
+{
+ "checkpoint": "runs/phase3-ab-mask/seed1/ckpt_1221.pt",
+ "penalty": 0.0,
+ "batches": 16,
+ "push_on_visible_shots": {
+  "total": {
+   "mean": 0.008581350998225273,
+   "sd": 0.00878114182729976,
+   "snr_per_batch": 0.9772477391888428,
+   "share_positive": 0.875
+  },
+  "penalty": {
+   "mean": 0.0,
+   "sd": 0.0,
+   "snr_per_batch": null,
+   "share_positive": 0.0
+  },
+  "rest": {
+   "mean": 0.008581350998225273,
+   "sd": 0.00878114182729976,
+   "snr_per_batch": 0.9772477391888428,
+   "share_positive": 0.875
+  }
+ },
+ "adv_sd_on_shots": {
+  "total": 0.0036200120084257013,
+  "penalty": 0.0,
+  "rest": 0.0036200120084257013
+ }
+}

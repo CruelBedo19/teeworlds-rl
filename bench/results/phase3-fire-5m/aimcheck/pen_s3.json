@@ -1,0 +1,30 @@
+{
+ "checkpoint": "runs/phase3-fire-5m/seed3/ckpt_1221.pt",
+ "penalty": 0.0005,
+ "batches": 16,
+ "push_on_visible_shots": {
+  "total": {
+   "mean": 0.00668766280959387,
+   "sd": 0.011198190608204489,
+   "snr_per_batch": 0.5972092317033855,
+   "share_positive": 0.6875
+  },
+  "penalty": {
+   "mean": -0.00022905249233081665,
+   "sd": 0.001781880558491283,
+   "snr_per_batch": -0.12854536811645514,
+   "share_positive": 0.4375
+  },
+  "rest": {
+   "mean": 0.006916715301924685,
+   "sd": 0.011476632775915211,
+   "snr_per_batch": 0.6026781057628733,
+   "share_positive": 0.6875
+  }
+ },
+ "adv_sd_on_shots": {
+  "total": 0.009356336502061493,
+  "penalty": 0.00042257467396364146,
+  "rest": 0.009340463056120137
+ }
+}
