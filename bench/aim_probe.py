@@ -36,7 +36,7 @@ from torch import nn
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from twrl import protocol as P  # noqa: E402
-from twrl.env import VecTeeworldsEnv  # noqa: E402
+from twrl.env import DEFAULT_REWARD_WEIGHTS, VecTeeworldsEnv  # noqa: E402
 from twrl.ppo import PPOConfig, Trainer, load_policy  # noqa: E402
 
 SHOT, LAUNCH = P.EVENT_NAMES.index("shots"), P.EVENT_NAMES.index("hook_launches")
@@ -147,13 +147,14 @@ def replay_update(trainer, batch, state, mode):
     return per_mb, off_at
 
 
-def probe(server_dir, run_dir, checkpoint, batches, kl_batches, seed):
+def probe(server_dir, run_dir, checkpoint, batches, kl_batches, seed, dry_fire_penalty=0.0):
     state = torch.load(os.path.join(run_dir, checkpoint), map_location="cpu", weights_only=False)
     policy, _ = load_policy(os.path.join(run_dir, checkpoint))
     opponent, _ = load_policy(os.path.join(run_dir, "ckpt_0000.pt"))
     cfg = PPOConfig(**state["config"])
+    weights = {**DEFAULT_REWARD_WEIGHTS, "dry_fires": -dry_fire_penalty} if dry_fire_penalty else None
     with VecTeeworldsEnv(cfg.num_envs, server_dir, seed=seed, map="lms1", grid_format="codes", raw_info=True,
-                         timeout=600) as venv:
+                         timeout=600, reward_weights=weights) as venv:
         rec = Recorder(venv)
         trainer = Trainer(rec, policy, cfg, seed=seed, opponent=opponent)
         trainer.opt.load_state_dict(state["optimizer"])
@@ -219,12 +220,13 @@ def main():
     ap.add_argument("--kl-batches", type=int, default=2)
     ap.add_argument("--seed", type=int, default=4242)
     ap.add_argument("--threads", type=int, default=3)
+    ap.add_argument("--dry-fire-penalty", type=float, default=0.0, help="as the run was trained (train_ppo.py)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
     out = {"run_dir": a.run_dir, "seed": a.seed, "checkpoints": {}}
     for c in a.checkpoints:
-        out["checkpoints"][c] = probe(a.server_dir, a.run_dir, c, a.batches, a.kl_batches, a.seed)
+        out["checkpoints"][c] = probe(a.server_dir, a.run_dir, c, a.batches, a.kl_batches, a.seed, a.dry_fire_penalty)
         b = out["checkpoints"][c]["batches"]
         print(c, json.dumps({k: round(float(np.mean([r[k] for r in b])), 4) for k in
                              ("mu_len_shot", "g_shot_head", "g_hook_head", "cos_shot_hook_head", "cos_shot_hook_trunk")}),

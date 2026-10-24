@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from aim_probe import Recorder, flat_grads, masks  # noqa: E402
 from twrl import protocol as P  # noqa: E402
-from twrl.env import VecTeeworldsEnv  # noqa: E402
+from twrl.env import DEFAULT_REWARD_WEIGHTS, VecTeeworldsEnv  # noqa: E402
 from twrl.ppo import PPOConfig, Trainer, load_policy  # noqa: E402
 
 V = P.VEC_INDEX
@@ -124,6 +124,7 @@ def main():
     ap.add_argument("--draws", type=int, default=400)
     ap.add_argument("--seed", type=int, default=4242)
     ap.add_argument("--threads", type=int, default=3)
+    ap.add_argument("--dry-fire-penalty", type=float, default=0.0, help="as the run was trained (train_ppo.py)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--save-grads", help="also write the per-batch gradients to this .npz")
     a = ap.parse_args()
@@ -135,8 +136,9 @@ def main():
     cfg = PPOConfig(**state["config"])
     grads = {"shot": ([], []), "hook": ([], [])}
     targets, infos = ([], []), []
+    weights = {**DEFAULT_REWARD_WEIGHTS, "dry_fires": -a.dry_fire_penalty} if a.dry_fire_penalty else None
     with VecTeeworldsEnv(cfg.num_envs, a.server_dir, seed=a.seed, map="lms1", grid_format="codes", raw_info=True,
-                         timeout=600) as venv:
+                         timeout=600, reward_weights=weights) as venv:
         rec = Recorder(venv)
         trainer = Trainer(rec, policy, cfg, seed=a.seed, opponent=opponent)
         for b in range(a.batches):
