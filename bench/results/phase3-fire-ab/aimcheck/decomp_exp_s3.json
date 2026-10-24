@@ -1,0 +1,30 @@
+{
+ "checkpoint": "runs/phase3-fire-ab/short-s3-dry0.0005/ckpt_0489.pt",
+ "penalty": 0.0005,
+ "batches": 16,
+ "push_on_visible_shots": {
+  "total": {
+   "mean": 0.00035740149113466443,
+   "sd": 0.006627887276424193,
+   "snr_per_batch": 0.053923894029695364,
+   "share_positive": 0.4375
+  },
+  "penalty": {
+   "mean": -1.1982777820520295e-05,
+   "sd": 0.0003327011148442625,
+   "snr_per_batch": -0.03601664462750429,
+   "share_positive": 0.4375
+  },
+  "rest": {
+   "mean": 0.0003693842689551847,
+   "sd": 0.0066605572841441675,
+   "snr_per_batch": 0.055458462887861465,
+   "share_positive": 0.4375
+  }
+ },
+ "adv_sd_on_shots": {
+  "total": 0.011281013826407553,
+  "penalty": 0.00035178754314345024,
+  "rest": 0.011258343181349328
+ }
+}

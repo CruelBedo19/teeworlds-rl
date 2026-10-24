@@ -1,0 +1,39 @@
+2026-10-24 18:59:29 start runs/phase3-fire-ab/short-s1-dry0.0005
+2026-10-24 19:05:48 trained runs/phase3-fire-ab/short-s1-dry0.0005 exit 0
+2026-10-24 19:07:12 diagnosed runs/phase3-fire-ab/short-s1-dry0.0005 exit 0
+2026-10-24 19:07:12 start runs/phase3-fire-ab/short-s1-dry0.00025
+2026-10-24 19:14:13 trained runs/phase3-fire-ab/short-s1-dry0.00025 exit 0
+2026-10-24 19:16:30 diagnosed runs/phase3-fire-ab/short-s1-dry0.00025 exit 0
+2026-10-24 19:16:30 short done seed 1
+2026-10-24 19:17:02 start runs/phase3-fire-ab/short-s2-dry0.0005
+2026-10-24 19:22:40 trained runs/phase3-fire-ab/short-s2-dry0.0005 exit 0
+2026-10-24 19:24:09 diagnosed runs/phase3-fire-ab/short-s2-dry0.0005 exit 0
+2026-10-24 19:24:09 short done seed 2
+2026-10-24 19:24:09 start runs/phase3-fire-ab/short-s3-dry0.0005
+2026-10-24 19:30:11 trained runs/phase3-fire-ab/short-s3-dry0.0005 exit 0
+2026-10-24 19:31:42 diagnosed runs/phase3-fire-ab/short-s3-dry0.0005 exit 0
+2026-10-24 19:31:42 short done seed 3
+2026-10-24 19:32:34 extend start runs/phase3-fire-ab/short-s1-dry0.0005
+2026-10-24 19:38:23 extended runs/phase3-fire-ab/short-s1-dry0.0005 exit 0
+2026-10-24 19:40:05 diagnosed 2M runs/phase3-fire-ab/short-s1-dry0.0005 exit 0
+2026-10-24 19:40:05 extend start runs/phase3-fire-ab/short-s2-dry0.0005
+2026-10-24 19:46:31 extended runs/phase3-fire-ab/short-s2-dry0.0005 exit 0
+2026-10-24 19:47:27 diagnosed 2M runs/phase3-fire-ab/short-s2-dry0.0005 exit 0
+2026-10-24 19:47:27 extend start runs/phase3-fire-ab/short-s3-dry0.0005
+2026-10-24 19:53:48 extended runs/phase3-fire-ab/short-s3-dry0.0005 exit 0
+2026-10-24 19:54:30 diagnosed 2M runs/phase3-fire-ab/short-s3-dry0.0005 exit 0
+2026-10-24 19:54:30 extend done 1 2 3
+2026-10-24 20:12:15 start runs/phase3-fire-ab/rep-s4-dry0
+cf done
+2026-10-24 20:23:54 trained runs/phase3-fire-ab/rep-s4-dry0 exit 0
+2026-10-24 20:25:18 diagnosed runs/phase3-fire-ab/rep-s4-dry0 exit 0
+2026-10-24 20:25:18 start runs/phase3-fire-ab/rep-s4-dry0.0005
+2026-10-24 20:35:59 trained runs/phase3-fire-ab/rep-s4-dry0.0005 exit 0
+2026-10-24 20:37:23 diagnosed runs/phase3-fire-ab/rep-s4-dry0.0005 exit 0
+2026-10-24 20:37:23 start runs/phase3-fire-ab/rep-s5-dry0
+2026-10-24 20:48:06 trained runs/phase3-fire-ab/rep-s5-dry0 exit 0
+2026-10-24 20:49:29 diagnosed runs/phase3-fire-ab/rep-s5-dry0 exit 0
+2026-10-24 20:49:29 start runs/phase3-fire-ab/rep-s5-dry0.0005
+2026-10-24 21:00:10 trained runs/phase3-fire-ab/rep-s5-dry0.0005 exit 0
+2026-10-24 21:01:34 diagnosed runs/phase3-fire-ab/rep-s5-dry0.0005 exit 0
+2026-10-24 21:01:34 replicate done
