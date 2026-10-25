@@ -110,11 +110,39 @@ The last three were checked at 2M (`phase3-fire-ab`).
 
 What is left is the random walk with a weak drift seen before in the aim (`phase3-seed-divergence`, `phase3-aim-consistency`). With three seeds per arm, that random walk cannot be told apart from a real but indirect effect of the penalty. One candidate for such an effect is that the penalty changes which states the shots come from. That is not measured here.
 
-## Next step (proposed, not started)
+## Seeds 4 and 5 to 5M: the aim loss is real (2026-10-25)
 
-The evidence on the aim is not enough to adopt or reject the penalty. The smallest test that would settle it changes no code:
+Seeds 4 and 5 of both arms of `phase3-fire-ab` were continued from 2M to 5M (`seeds45/extend5m.sh`), one run at a time, and all four exited with 0.
 
-- continue seeds 4 and 5 of both arms of `phase3-fire-ab` from 2M to 5M, 4 × 3M = 12M agent steps, one run at a time;
-- that gives 5 seeds per arm at 5M.
+Two of the four 5M diagnoses first failed: they ran in parallel and both tried to bind the same server port. That was an infrastructure failure, not a learning one. They were re-run one at a time (`seeds45/rediag5m.sh`).
 
-The penalty would be adopted only if its mean aim cosine over 3-5M is within about 0.05 of the control's.
+Every number below comes from `diagnose.py` at 3, 4 and 5M, 64 matches per point against the run's ckpt_0000 (`seeds45/five_seed_table.txt`).
+
+| seed | aim cos, visible, mean of 3-5M: control | penalty | difference |
+|---|---|---|---|
+| 1 | +0.20 | +0.14 | -0.06 |
+| 2 | +0.19 | +0.02 | -0.17 |
+| 3 | +0.15 | +0.04 | -0.10 |
+| 4 | +0.25 | +0.02 | -0.24 |
+| 5 | +0.22 | -0.36 | -0.58 |
+
+The aim is lower with the penalty in 5 of 5 seeds. The mean difference is -0.23, with a standard error of 0.09.
+
+In seed 5 the penalty arm aims away from the opponent at 3, 4 and 5M: -0.32, -0.31, -0.46.
+
+Means over the five seeds at 5M, control → penalty:
+
+- dry fires per match 263 → 53;
+- gun empty 0.83 → 0.45;
+- selectivity 0.80 → 1.59;
+- shots per match 98 → 117;
+- hit rate 0.030 → 0.016;
+- damage dealt / taken 2.90 / 2.02 → 1.87 / 1.33;
+- damage ratio 1.47 → 1.35;
+- kills per match 0.028 → 0.028.
+
+## Verdict
+
+The aim cost is real. The dry-fire penalty fixes the fire behaviour, but it costs about half the hit rate and most of the aim, and it does not raise the damage ratio. **It is rejected.** The shots-only control (`phase3-ab-mask`) stays the baseline.
+
+The cause is still not known. At 5M the aim's learning signal was not weaker in the worse seeds, and the penalty's own part of the aim's advantage is tiny. The aim loss uses shot decisions only, so the remaining candidate is the change in which states the shots come from. That has not been measured yet.

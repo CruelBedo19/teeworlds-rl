@@ -1,0 +1,13 @@
+1 ctl aim3-5M=+0.201 traj=+0.26 +0.15 +0.20 5M: ratio=1.53 hit=0.027 dmg=2.77/1.81 dry=228 empty=0.79 sel=0.68 shots=104 k=0.016 d=0.000
+1 pen aim3-5M=+0.144 traj=+0.10 +0.06 +0.27 5M: ratio=2.18 hit=0.027 dmg=3.14/1.44 dry=79 empty=0.55 sel=1.77 shots=116 k=0.062 d=0.016
+2 ctl aim3-5M=+0.189 traj=+0.21 +0.19 +0.17 5M: ratio=1.34 hit=0.028 dmg=2.39/1.78 dry=326 empty=0.88 sel=0.80 shots=86 k=0.000 d=0.000
+2 pen aim3-5M=+0.018 traj=-0.02 +0.09 -0.01 5M: ratio=1.47 hit=0.020 dmg=2.36/1.61 dry=36 empty=0.32 sel=1.73 shots=118 k=0.047 d=0.000
+3 ctl aim3-5M=+0.145 traj=+0.16 +0.14 +0.14 5M: ratio=1.58 hit=0.036 dmg=3.69/2.33 dry=241 empty=0.81 sel=0.81 shots=101 k=0.062 d=0.000
+3 pen aim3-5M=+0.043 traj=-0.04 +0.17 +0.01 5M: ratio=1.37 hit=0.017 dmg=1.95/1.42 dry=88 empty=0.58 sel=2.03 shots=116 k=0.031 d=0.031
+4 ctl aim3-5M=+0.254 traj=+0.24 +0.28 +0.25 5M: ratio=1.23 hit=0.038 dmg=3.73/3.05 dry=262 empty=0.83 sel=0.82 shots=99 k=0.031 d=0.031
+4 pen aim3-5M=+0.015 traj=+0.15 +0.12 -0.23 5M: ratio=0.86 hit=0.008 dmg=0.97/1.12 dry=50 empty=0.53 sel=1.10 shots=118 k=0.000 d=0.000
+5 ctl aim3-5M=+0.218 traj=+0.21 +0.26 +0.18 5M: ratio=1.69 hit=0.019 dmg=1.91/1.12 dry=260 empty=0.83 sel=0.90 shots=98 k=0.031 d=0.000
+5 pen aim3-5M=-0.364 traj=-0.32 -0.31 -0.46 5M: ratio=0.88 hit=0.008 dmg=0.91/1.03 dry=13 empty=0.27 sel=1.30 shots=120 k=0.000 d=0.000
+ctl MEAN {'late': 0.201, 'ratio': 1.474, 'hit_rate': 0.03, 'damage_dealt_per_episode': 2.897, 'damage_taken_per_episode': 2.019, 'dry_fires_per_episode': 263.422, 'gun_empty_frac': 0.828, 'sel': 0.802, 'shots_per_episode': 97.794, 'kills_per_episode': 0.028}
+pen MEAN {'late': -0.029, 'ratio': 1.353, 'hit_rate': 0.016, 'damage_dealt_per_episode': 1.866, 'damage_taken_per_episode': 1.325, 'dry_fires_per_episode': 53.184, 'gun_empty_frac': 0.449, 'sel': 1.585, 'shots_per_episode': 117.494, 'kills_per_episode': 0.028}
+aim late diff per seed [-0.057 -0.171 -0.102 -0.239 -0.582] mean -0.230 sd 0.208 se 0.093
