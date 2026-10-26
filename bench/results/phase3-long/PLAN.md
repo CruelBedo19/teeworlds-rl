@@ -49,3 +49,21 @@ After both runs, `diagnose.py` measures fire and aim at 10, 20, 30 and 40M, one 
 | aim cos and hit rate rise past 5M in both runs | length is a lever; next step is a longer run |
 | both runs stay flat | the aim needs a method change before more steps (see `phase3-fire-5m` README) |
 | one rises, one stays flat | seed luck; needs more seeds before any conclusion |
+
+## Attempt 2 (23:44)
+
+Attempt 1 stopped seed 3 at 7M (update 1705). The cause was the pipeline's watchdog, not instability.
+
+- The rule is "aim KL, mean of 20 updates, above 0.05".
+- The aim KL had been steady at a mean of about 0.03 in both seeds since 4M.
+- Single updates spike to 0.2-0.3: the maximum was 0.08-0.12 from 4M to 5M, and 0.23-0.29 after.
+- One spike took the 20-update mean just over the limit.
+
+The fix:
+
+- `learn_pipeline.py --aim-kl-limit` makes the limit settable. The default is unchanged, at 0.05.
+- This run uses 0.10. That still catches a sustained climb, such as v3's, but not a single spike.
+
+Both seeds restart from their 6M checkpoint (`ckpt_1465.pt`), with metrics cut back to update 1465. Seed 1 had reached 6.3M when it was stopped.
+
+Attempt 1's files are in `attempt1/`, including the 5M re-evaluation of seed 3. The deadline is still 11:13.

@@ -155,8 +155,11 @@ def main():
     ap.add_argument("--eval-at", required=True, help="comma-separated agent step counts")
     ap.add_argument("--poll", type=float, default=30)
     ap.add_argument("--summarize", action="store_true", help="only rebuild summary.json from a finished run's files")
+    ap.add_argument("--aim-kl-limit", type=float, help="replaces the aim_kl_mean_above rule (long runs: single spikes trip 0.05)")
     ap.add_argument("train_args", nargs=argparse.REMAINDER)
     a = ap.parse_args()
+    if a.aim_kl_limit is not None:
+        RULES["aim_kl_mean_above"] = a.aim_kl_limit
     os.chdir(ROOT)
     targets = [int(x) for x in a.eval_at.split(",")]
     if a.summarize:

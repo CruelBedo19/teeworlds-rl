@@ -1,20 +1,22 @@
 #!/bin/bash
-# Overnight long run, see PLAN.md. Shots-only baseline resumed 5M -> 40M; seed 3 then seed 1.
+# Overnight long run, see PLAN.md. Shots-only baseline resumed 6M -> 40M; seed 3 then seed 1.
+# Attempt 2: attempt 1 (attempt1/) was stopped at 7M by a single aim-KL spike tripping the 0.05 watchdog;
+# both seeds restart from their 6M checkpoint with the watchdog's aim-KL limit at 0.10. Deadline 11:13 (12 h).
 cd "${REPO_DIR:?set REPO_DIR to the repo checkout}"
 D=runs/phase3-long
 S=$D/status
 SRV=../teeworlds-0.7.5/build-v4
 PY=.venv/bin/python
-T0=$(date +%s)
+T0=$(date -d '2026-10-26 23:13' +%s)
 log() { echo "$(date '+%F %T') $*" >> $S; }
-EVAL=5000000,10000000,15000000,20000000,25000000,30000000,35000000,40000000
+EVAL=10000000,15000000,20000000,25000000,30000000,35000000,40000000
 COMMON="--envs 32 --updates 9766 --max-minutes 330 --checkpoint-steps 1000000 --aim gaussian --threads 4 --compile --opponent initial --aim-target-kl 0.015 --aim-mean bounded --aim-mask shots --env-timeout 600"
-log "seq start (seed 3 then seed 1, 5M -> 40M, cap 12 h)"
+log "seq start, attempt 2 (seed 3 then seed 1, 6M -> 40M, deadline 11:13)"
 for seed in 3 1; do
   left=$(( 43200 - ($(date +%s) - T0) ))
   if [ $left -lt 19800 ]; then log "seq seed$seed skipped: only $((left/60)) min left"; continue; fi
   log "seq seed$seed start"
-  timeout 340m $PY bench/learn_pipeline.py --server-dir $SRV --run-dir $D/seed$seed --eval-at $EVAL -- $COMMON --seed $seed --resume $D/seed$seed/ckpt_1221.pt > $D/seed$seed.out 2>&1
+  timeout 340m $PY bench/learn_pipeline.py --server-dir $SRV --run-dir $D/seed$seed --eval-at $EVAL --aim-kl-limit 0.10 -- $COMMON --seed $seed --resume $D/seed$seed/ckpt_1465.pt > $D/seed$seed.out 2>&1
   log "seq seed$seed done exit $?"
 done
 for seed in 3 1; do
