@@ -1,0 +1,4 @@
+2026-10-26 23:18:25 seq start (seed 3 then seed 1, 5M -> 40M, cap 12 h)
+2026-10-26 23:18:25 seq seed3 start
+2026-10-26 23:31:57 seq seed3 done exit 0
+2026-10-26 23:31:57 seq seed1 start

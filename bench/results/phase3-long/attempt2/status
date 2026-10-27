@@ -1,0 +1,7 @@
+2026-10-26 23:44:36 seq start, attempt 2 (seed 3 then seed 1, 6M -> 40M, deadline 11:13)
+2026-10-26 23:44:36 seq seed3 start
+2026-10-27 00:07:08 seq seed3 done exit 0
+2026-10-27 00:07:08 seq seed1 start
+2026-10-27 01:00:40 seq seed1 done exit 0
+2026-10-27 01:01:21 diagnose seed1 exit 0
+2026-10-27 01:01:21 seq done

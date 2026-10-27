@@ -1,0 +1,66 @@
+{
+ "rules": {
+  "grad_norm_max_above": 20.0,
+  "aim_kl_window": 20,
+  "aim_kl_mean_above": 0.05,
+  "aim_kl_after_steps": 500000,
+  "entropy_below": 1.0,
+  "log_std_below": -4.5,
+  "no_shots_updates": 50,
+  "stale_minutes": 10
+ },
+ "train_args": [
+  "--envs",
+  "32",
+  "--updates",
+  "9766",
+  "--max-minutes",
+  "330",
+  "--checkpoint-steps",
+  "1000000",
+  "--aim",
+  "gaussian",
+  "--threads",
+  "4",
+  "--compile",
+  "--opponent",
+  "initial",
+  "--aim-target-kl",
+  "0.015",
+  "--aim-mean",
+  "bounded",
+  "--aim-mask",
+  "shots",
+  "--env-timeout",
+  "600",
+  "--seed",
+  "1",
+  "--resume",
+  "runs/phase3-long/seed1/ckpt_1221.pt"
+ ],
+ "eval_at": [
+  5000000,
+  10000000,
+  15000000,
+  20000000,
+  25000000,
+  30000000,
+  35000000,
+  40000000
+ ],
+ "started": "2026-10-26 23:31:58",
+ "stop_reason": null,
+ "train_pid": 3369640,
+ "evals": {
+  "ckpt_0000": {
+   "exit": 1,
+   "checkpoint": "ckpt_0000.pt",
+   "finished": "2026-10-26 23:32:28"
+  },
+  "at_5000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_1221.pt",
+   "finished": "2026-10-26 23:36:58"
+  }
+ }
+}
