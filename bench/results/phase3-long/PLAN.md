@@ -67,3 +67,24 @@ The fix:
 Both seeds restart from their 6M checkpoint (`ckpt_1465.pt`), with metrics cut back to update 1465. Seed 1 had reached 6.3M when it was stopped.
 
 Attempt 1's files are in `attempt1/`, including the 5M re-evaluation of seed 3. The deadline is still 11:13.
+
+## Attempt 3 (01:05)
+
+Attempt 2 stopped again on the same watchdog rule:
+
+- seed 3 at 8.9M, with a 20-update mean of 0.156;
+- seed 1 at 15.6M, with a 20-update mean of 0.104.
+
+Neither stop was instability.
+
+- Both times the cause was one or two single updates of 0.9-1.3. Most updates were 0.02-0.06.
+- These spikes grow as the aim's std narrows (log_std_y fell from -1.6 to -2.1), because the same mean shift costs more KL.
+- Over the same updates, seed 1's training aim cos rose from 0.22 to 0.34-0.38 and its hit rate from 0.03 to 0.05.
+- Seed 1's 15M evaluation against ckpt_0000 was well above its 5M point: kills 0.125, deaths 0.047, damage 5.75 / 3.41, hit rate 0.057, aim cos 0.35.
+
+The fix:
+
+- The limit is raised to 0.25. That is about four such spikes within 20 updates, so a sustained climb still trips it.
+- The other watchdog rules are unchanged: grad norm, entropy, log_std, shots, stale.
+- Each seed resumes from its last checkpoint (seed 3 at 8M, seed 1 at 15M), with metrics cut back to it.
+- Attempt 2's logs are in `attempt2/`.
