@@ -219,6 +219,13 @@ class PPOConfig:
         # of the update while the other heads and the value keep training. None: never.
         self.aim_lr_scale = 1.0
         self.aim_target_kl = None
+        # ReDo (Sokar et al. 2023): every redo_every updates, fully connected ReLU units whose mean activation
+        # on the batch is at most redo_tau times their layer's mean are dormant; their incoming weights are
+        # re-drawn from the initial distribution, their outgoing weights zeroed (so the network's output does
+        # not change) and Adam's moments for both reset. In the long runs the last trunk layer died unit by
+        # unit until the policy was uniform (bench/results/phase3-long/collapse). 0: never.
+        self.redo_every = 0
+        self.redo_tau = 0.0
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise TypeError(f"unknown PPO setting {k}")
@@ -489,6 +496,47 @@ class Trainer:
         out["grad_norm_max"] = float(np.max(stats["grad_norm"]))
         if self.policy.gaussian:
             out["log_std_x"], out["log_std_y"] = (float(x) for x in self.policy.log_std.detach())
+        return out
+
+    def recycle(self, batch):
+        """ReDo on the fully connected layers; returns the number of units recycled per layer."""
+        p = self.policy
+        # (name, layer in, ReLU, [(layer out, columns)])
+        layers = [("grid_fc", p.grid_fc[0], p.grid_fc[1], [(p.trunk[0], slice(0, 128))]),
+                  ("vec_fc", p.vec_fc[0], p.vec_fc[1], [(p.trunk[0], slice(128, 256))]),
+                  ("trunk1", p.trunk[0], p.trunk[1], [(p.trunk[2], slice(None))]),
+                  ("trunk2", p.trunk[2], p.trunk[3], [(p.pi, slice(None)), (p.v, slice(None))])]
+        acts = {}
+        hooks = [relu.register_forward_hook(lambda m, i, o, k=name: acts.__setitem__(k, o.detach().abs().mean(0)))
+                 for name, _, relu, _ in layers]
+        try:
+            with torch.no_grad():
+                p(batch["vec"], batch["codes"])
+        finally:
+            for h in hooks:
+                h.remove()
+        out = {}
+        with torch.no_grad():
+            for name, lin, _, nexts in layers:
+                a = acts[name]
+                dormant = a <= self.cfg.redo_tau * a.mean()
+                out["redo_" + name] = int(dormant.sum())
+                if not dormant.any():
+                    continue
+                fresh = torch.empty_like(lin.weight)
+                nn.init.orthogonal_(fresh, math.sqrt(2))
+                lin.weight[dormant] = fresh[dormant]
+                lin.bias[dormant] = 0.0
+                for t in (lin.weight, lin.bias):
+                    for m in ("exp_avg", "exp_avg_sq"):
+                        if m in self.opt.state.get(t, {}):
+                            self.opt.state[t][m][dormant] = 0.0
+                for nxt, cols in nexts:
+                    idx = torch.arange(nxt.weight.shape[1])[cols][dormant]
+                    nxt.weight[:, idx] = 0.0
+                    for m in ("exp_avg", "exp_avg_sq"):
+                        if m in self.opt.state.get(nxt.weight, {}):
+                            self.opt.state[nxt.weight][m][:, idx] = 0.0
         return out
 
     def state_dict(self):

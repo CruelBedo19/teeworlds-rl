@@ -70,21 +70,26 @@ def main():
                     help="reward per dry fire (a press on an empty gun, which restarts the ammo refill), subtracted")
     ap.add_argument("--env-timeout", type=float, default=30.0,
                     help="seconds a server waits for the trainer (and the trainer for a server) before giving up")
+    ap.add_argument("--redo-every", type=int, default=0, help="ReDo: recycle dormant fully connected units every this many updates (0: never)")
+    ap.add_argument("--redo-tau", type=float, default=0.0, help="ReDo: a unit is dormant when its mean activation is at most this times its layer's")
     a = ap.parse_args()
 
     run_dir = a.run_dir or os.path.join("runs", time.strftime("ppo-%Y%m%d-%H%M%S"))
     os.makedirs(run_dir, exist_ok=True)
     torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
-    cfg = PPOConfig(num_envs=a.envs, steps=a.steps, minibatch=a.minibatch, aim_lr_scale=a.aim_lr_scale, aim_target_kl=a.aim_target_kl, aim_mask=a.aim_mask)
+    cfg = PPOConfig(num_envs=a.envs, steps=a.steps, minibatch=a.minibatch, aim_lr_scale=a.aim_lr_scale, aim_target_kl=a.aim_target_kl, aim_mask=a.aim_mask,
+                    redo_every=a.redo_every, redo_tau=a.redo_tau)
     resume = torch.load(a.resume, map_location="cpu", weights_only=False) if a.resume else None
     if resume:
         saved = resume.get("args", {})
         for key in ("map", "envs", "steps", "seed", "aim", "first_stride", "opponent"):
             if key in saved and saved[key] != getattr(a, key):
                 sys.exit(f"--{key} {getattr(a, key)} does not match the checkpoint ({saved[key]})")
-        # settings added after the checkpoint was made count as their defaults
-        if {**vars(PPOConfig()), **resume["config"]} != vars(cfg):
+        # settings added after the checkpoint was made count as their defaults; ReDo may be switched on
+        # when resuming (it changes no other setting)
+        redo = ("redo_every", "redo_tau")
+        if {**vars(PPOConfig()), **resume["config"], **{k: getattr(cfg, k) for k in redo}} != vars(cfg):
             sys.exit(f"PPO settings differ from the checkpoint: {resume['config']}")
     else:
         with open(os.path.join(run_dir, "config.json"), "w") as f:
@@ -125,6 +130,8 @@ def main():
             t1 = time.time()
             heads = trainer.head_stats(batch)  # the policy that collected the batch
             stats = trainer.train(batch)
+            if cfg.redo_every and trainer.update % cfg.redo_every == 0:
+                stats.update(trainer.recycle(batch))
             t2 = time.time()
             finished = np.array(trainer.finished) if trainer.finished else np.zeros((0, 2, len(EVENT_NAMES)))
             trainer.finished = []
