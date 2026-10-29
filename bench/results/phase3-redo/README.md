@@ -45,11 +45,12 @@ Seed 1 was resumed from `runs/phase3-long/seed1/ckpt_3663.pt` (15M) with otherwi
 |---|---|---|---|---|---|
 | 20M | 0 / 0 → .016 / 0 | 1.94 / 1.52 → 2.84 / 1.59 | .019 → .028 | .13 → .12 | 0 → 1 |
 | 25M | 0 / 0 → .062 / .016 | 1.73 / 1.34 → 3.78 / 2.56 | .017 → .038 | .01 → -.03 | 0 → 4 |
-| 15M start | .125 / .047, 5.75 / 3.41, hit .057, cos .35, 8 wins | | | | |
+| 15M start, both arms | .078 / 0 | 5.25 / 2.70 | .052 | .37 | 5 |
 
 ## Reading
 
 - ReDo removes the collapse: there are no dead units, no uniform policy, and training keeps learning to 27.8M.
+- The 15M row was corrected on 2026-10-29. The first version had the uniform-random numbers; see the correction in `phase3-long/README.md`.
 - It does **not** improve on the 15M start. The 20M and 25M evaluations are below 15M on every measure; the training metrics hold flat at about the 15M level.
 - The aim's KL per update grows steadily (0.06 → 0.17 → 0.40) as log_std_y narrows (-2.1 → -2.6). This is a second instability, separate from the dead units.
 - This is one seed only, so no best-model claim is made.
