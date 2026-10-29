@@ -53,4 +53,5 @@ Seed 1 was resumed from `runs/phase3-long/seed1/ckpt_3663.pt` (15M) with otherwi
 - The 15M row was corrected on 2026-10-29. The first version had the uniform-random numbers; see the correction in `phase3-long/README.md`.
 - It does **not** improve on the 15M start. The 20M and 25M evaluations are below 15M on every measure; the training metrics hold flat at about the 15M level.
 - The aim's KL per update grows steadily (0.06 → 0.17 → 0.40) as log_std_y narrows (-2.1 → -2.6). This is a second instability, separate from the dead units.
+- Correction, 2026-10-29: the 0.40 that stopped the run came mostly from one update (6784), where the minibatch estimate `aim_approx_kl` was 5.75. Over the last 20 updates the median is 0.107, and the mean without that update 0.116. The 500-update means in the table above include such spikes. See `phase3-redo-floor/README.md`.
 - This is one seed only, so no best-model claim is made.
