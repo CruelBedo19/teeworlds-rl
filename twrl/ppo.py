@@ -226,6 +226,11 @@ class PPOConfig:
         # unit until the policy was uniform (bench/results/phase3-long/collapse). 0: never.
         self.redo_every = 0
         self.redo_tau = 0.0
+        # Gaussian aim: lower bound on log_std, enforced by projecting the parameter after every optimiser
+        # step (not by clamping in the forward pass), so the stored parameter is the std that collection,
+        # the PPO ratio, evaluation and checkpoints all use, and the gradient at the bound is not cut.
+        # In the ReDo run the aim KL per update grew as log_std_y narrowed from -2.1 to -2.6. None: no bound.
+        self.aim_log_std_floor = None
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise TypeError(f"unknown PPO setting {k}")
@@ -446,6 +451,11 @@ class Trainer:
         stats = {k: [] for k in keys + (("aim_approx_kl", "aim_clip_frac", "aim_mask_frac", "aim_off") if self.masked_aim() else ())}
         aim_weight = 1.0
         scale = cfg.aim_lr_scale if self.policy.gaussian else 1.0
+        floor = cfg.aim_log_std_floor if self.policy.gaussian else None
+        floor_hits = []
+        if floor is not None:
+            self._project_log_std()
+        aim_before = self._aim_dist(batch) if self.masked_aim() else None
         all_adv = batch["adv"]
         if cfg.adv_norm == "batch":
             all_adv = (all_adv - all_adv.mean()) / (all_adv.std() + 1e-8)
@@ -471,6 +481,8 @@ class Trainer:
                     with torch.no_grad():
                         for (p, i), old in zip(self.aim_params, before):
                             p[i] = old + step * (p[i] - old)
+                if floor is not None:
+                    floor_hits.append(self._project_log_std())
                 with torch.no_grad():
                     ratio, log_ratio = L["ratio"], L["log_ratio"]
                     stats["approx_kl"].append(((ratio - 1) - log_ratio).mean().item())
@@ -496,7 +508,36 @@ class Trainer:
         out["grad_norm_max"] = float(np.max(stats["grad_norm"]))
         if self.policy.gaussian:
             out["log_std_x"], out["log_std_y"] = (float(x) for x in self.policy.log_std.detach())
+        if floor_hits:
+            hits = np.array(floor_hits, dtype=np.float64)
+            out["floor_hit_x"], out["floor_hit_y"] = (float(x) for x in hits.mean(0))
+        if aim_before is not None:
+            out.update(self._aim_kl_parts(aim_before, self._aim_dist(batch), batch["aim_mask"]))
         return out
+
+    def _project_log_std(self):
+        """Raise log_std to cfg.aim_log_std_floor; returns which dimensions were below it."""
+        with torch.no_grad():
+            below = (self.policy.log_std < self.cfg.aim_log_std_floor).tolist()
+            self.policy.log_std.clamp_(min=self.cfg.aim_log_std_floor)
+        return below
+
+    def _aim_dist(self, batch):
+        with torch.no_grad():
+            return self.policy.aim_mean(batch["vec"], batch["codes"]), self.policy._std()
+
+    @staticmethod
+    def _aim_kl_parts(before, after, mask):
+        """Exact Gaussian KL(before || after) of the aim on the masked decisions, split into the part from
+        the change of the mean and the part from the change of the std (diagnostics only)."""
+        (mu0, s0), (mu1, s1) = before, after
+        m = mask > 0
+        if not m.any():
+            return {}
+        mean_part = (((mu0 - mu1) ** 2) / (2 * s1 ** 2)).sum(-1)[m].mean()
+        std_part = (torch.log(s1 / s0) + s0 ** 2 / (2 * s1 ** 2) - 0.5).sum()
+        return {"aim_kl_exact": float(mean_part + std_part), "aim_kl_mean_part": float(mean_part), "aim_kl_std_part": float(std_part),
+                "aim_mu_shift": float((mu0 - mu1).norm(dim=-1)[m].mean())}
 
     def recycle(self, batch):
         """ReDo on the fully connected layers; returns the number of units recycled per layer."""
