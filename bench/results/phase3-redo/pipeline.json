@@ -1,0 +1,79 @@
+{
+ "rules": {
+  "grad_norm_max_above": 20.0,
+  "aim_kl_window": 20,
+  "aim_kl_mean_above": 0.25,
+  "aim_kl_after_steps": 500000,
+  "entropy_below": 1.0,
+  "log_std_below": -4.5,
+  "no_shots_updates": 50,
+  "stale_minutes": 10
+ },
+ "train_args": [
+  "--envs",
+  "32",
+  "--updates",
+  "7325",
+  "--max-minutes",
+  "200",
+  "--checkpoint-steps",
+  "1000000",
+  "--aim",
+  "gaussian",
+  "--threads",
+  "4",
+  "--compile",
+  "--opponent",
+  "initial",
+  "--aim-target-kl",
+  "0.015",
+  "--aim-mean",
+  "bounded",
+  "--aim-mask",
+  "shots",
+  "--env-timeout",
+  "600",
+  "--redo-every",
+  "25",
+  "--redo-tau",
+  "0",
+  "--seed",
+  "1",
+  "--resume",
+  "runs/phase3-redo/seed1/ckpt_3663.pt"
+ ],
+ "eval_at": [
+  20000000,
+  25000000,
+  30000000
+ ],
+ "started": "2026-10-28 19:58:27",
+ "stop_reason": "aim KL 0.3978 (mean of 20 updates) at update 6786",
+ "train_pid": 96037,
+ "evals": {
+  "ckpt_0000": {
+   "exit": 0,
+   "checkpoint": "ckpt_0000.pt",
+   "finished": "2026-10-28 20:09:57"
+  },
+  "at_20000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_4883.pt",
+   "finished": "2026-10-28 21:01:28"
+  },
+  "at_25000000": {
+   "exit": 0,
+   "checkpoint": "ckpt_6104.pt",
+   "finished": "2026-10-28 21:32:28"
+  }
+ },
+ "stopped_at": "2026-10-28 21:44:28",
+ "train_exit": -2,
+ "finished": "2026-10-28 21:44:58",
+ "updates": 6786,
+ "agent_steps": 27795456,
+ "train_minutes": 105.96,
+ "not_reached": [
+  30000000
+ ]
+}

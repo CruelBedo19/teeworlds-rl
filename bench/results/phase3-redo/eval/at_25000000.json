@@ -1,0 +1,176 @@
+{
+ "protocol": {
+  "seed": 9001,
+  "envs": 8,
+  "rounds": 4,
+  "map": "lms1",
+  "episode_ticks": 3000,
+  "threads": 4,
+  "seeds": [
+   [
+    3284403741,
+    30438293,
+    2555164660,
+    3601716312,
+    3887425112,
+    3147638026,
+    880139736,
+    3127311670
+   ],
+   [
+    2176358827,
+    949515868,
+    3868165787,
+    2608111029,
+    175145392,
+    1215767247,
+    4097401613,
+    380952508
+   ],
+   [
+    2547532667,
+    134736761,
+    3395622566,
+    337640379,
+    1933714085,
+    3714802986,
+    797823165,
+    1367683430
+   ],
+   [
+    2978459412,
+    94057134,
+    304246184,
+    851688394,
+    2618242178,
+    4210433216,
+    462789867,
+    3170323120
+   ]
+  ]
+ },
+ "current": "runs/phase3-redo/seed1/ckpt_6104.pt",
+ "initial": "runs/phase3-redo/seed1/ckpt_0000.pt",
+ "previous": "runs/phase3-redo/seed1/ckpt_5860.pt",
+ "versus": null,
+ "self": {
+  "episodes": 64,
+  "kills": 0.5938,
+  "deaths": 0.5938,
+  "suicides": 0.0,
+  "damage_dealt": 9.9688,
+  "damage_taken": 9.9688,
+  "shots": 104.0,
+  "hit_rate": 0.0959,
+  "opp_visible_frac": 0.6685,
+  "encounters": 3.2812,
+  "aim_cos_when_visible": 0.1066,
+  "reward": 0.0,
+  "win_rate": 0.2656,
+  "draw_rate": 0.4688
+ },
+ "vs": {
+  "random": {
+   "current": {
+    "episodes": 64,
+    "kills": 0.1406,
+    "deaths": 0.0156,
+    "suicides": 0.0,
+    "damage_dealt": 4.6406,
+    "damage_taken": 2.875,
+    "shots": 98.9375,
+    "hit_rate": 0.0469,
+    "opp_visible_frac": 0.6087,
+    "encounters": 3.5938,
+    "aim_cos_when_visible": 0.0069,
+    "reward": 0.1603,
+    "win_rate": 0.1406,
+    "draw_rate": 0.8438
+   },
+   "opponent": {
+    "episodes": 64,
+    "kills": 0.0156,
+    "deaths": 0.1406,
+    "suicides": 0.0,
+    "damage_dealt": 2.875,
+    "damage_taken": 4.6406,
+    "shots": 99.6562,
+    "hit_rate": 0.0288,
+    "opp_visible_frac": 0.6094,
+    "encounters": 3.5938,
+    "aim_cos_when_visible": -0.0012,
+    "reward": -0.1603,
+    "win_rate": 0.0156,
+    "draw_rate": 0.8438
+   }
+  },
+  "initial": {
+   "current": {
+    "episodes": 64,
+    "kills": 0.0625,
+    "deaths": 0.0156,
+    "suicides": 0.0,
+    "damage_dealt": 3.7812,
+    "damage_taken": 2.5625,
+    "shots": 98.6406,
+    "hit_rate": 0.0383,
+    "opp_visible_frac": 0.6,
+    "encounters": 4.5469,
+    "aim_cos_when_visible": -0.0344,
+    "reward": 0.0713,
+    "win_rate": 0.0625,
+    "draw_rate": 0.9219
+   },
+   "opponent": {
+    "episodes": 64,
+    "kills": 0.0156,
+    "deaths": 0.0625,
+    "suicides": 0.0,
+    "damage_dealt": 2.5625,
+    "damage_taken": 3.7812,
+    "shots": 99.3438,
+    "hit_rate": 0.0258,
+    "opp_visible_frac": 0.6003,
+    "encounters": 4.5469,
+    "aim_cos_when_visible": -0.0004,
+    "reward": -0.0713,
+    "win_rate": 0.0156,
+    "draw_rate": 0.9219
+   }
+  },
+  "previous": {
+   "current": {
+    "episodes": 64,
+    "kills": 0.3125,
+    "deaths": 0.1719,
+    "suicides": 0.0,
+    "damage_dealt": 6.6562,
+    "damage_taken": 7.0625,
+    "shots": 100.25,
+    "hit_rate": 0.0664,
+    "opp_visible_frac": 0.736,
+    "encounters": 3.75,
+    "aim_cos_when_visible": -0.0758,
+    "reward": 0.1325,
+    "win_rate": 0.2969,
+    "draw_rate": 0.5469
+   },
+   "opponent": {
+    "episodes": 64,
+    "kills": 0.1719,
+    "deaths": 0.3125,
+    "suicides": 0.0,
+    "damage_dealt": 7.0625,
+    "damage_taken": 6.6562,
+    "shots": 100.125,
+    "hit_rate": 0.0705,
+    "opp_visible_frac": 0.7368,
+    "encounters": 3.75,
+    "aim_cos_when_visible": 0.1437,
+    "reward": -0.1325,
+    "win_rate": 0.1562,
+    "draw_rate": 0.5469
+   }
+  }
+ }
+}
