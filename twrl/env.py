@@ -431,8 +431,20 @@ class VecTeeworldsEnv:
             self._ports, self._ports_reserved = list(ports), False
         self.envs = []
         try:
-            for port in self._ports:
-                self.envs.append(TeeworldsEnv(server_dir, port=port, **env_kwargs))
+            for i, port in enumerate(self._ports):
+                for attempt in range(3):
+                    try:
+                        self.envs.append(TeeworldsEnv(server_dir, port=port, **env_kwargs))
+                        break
+                    except EnvCrashed:
+                        # a server that could not bind its port (two processes starting at the same moment
+                        # can be handed the same one) gets a fresh port; chosen ports are not retried
+                        if ports is not None or attempt == 2:
+                            raise
+                        if self._ports_reserved:
+                            release_udp_ports([port])
+                        port = free_udp_ports(1)[0][0]
+                        self._ports[i] = port
         except BaseException:
             self.close()
             raise
