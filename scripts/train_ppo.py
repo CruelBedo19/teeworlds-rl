@@ -125,7 +125,7 @@ def main():
         else:
             save_checkpoint(initial, trainer, extra)
         log = open(os.path.join(run_dir, "metrics.jsonl"), "a" if resume else "w")
-        aim_kls = []  # the watchdog's window (bench/learn_pipeline.py)
+        aim_kls, exact_kls = [], []  # exact_kls is the watchdog's window (bench/learn_pipeline.py)
         while trainer.update < a.updates and time.time() - start < a.max_minutes * 60:
             t0 = time.time()
             batch = trainer.collect()
@@ -135,6 +135,9 @@ def main():
             if "aim_approx_kl" in stats:
                 aim_kls.append(stats["aim_approx_kl"])
                 stats["aim_kl_roll20"] = float(np.mean(aim_kls[-20:]))
+            if "aim_kl_exact" in stats:
+                exact_kls.append(stats["aim_kl_exact"])
+                stats["aim_kl_exact_roll20"] = float(np.mean(exact_kls[-20:]))
             if cfg.redo_every and trainer.update % cfg.redo_every == 0:
                 stats.update(trainer.recycle(batch))
             t2 = time.time()

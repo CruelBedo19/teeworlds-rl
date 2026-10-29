@@ -34,6 +34,9 @@ RULES = {
     "aim_kl_window": 20,  # updates
     "aim_kl_mean_above": 0.05,  # v3 reached 0.05 at about 1.5M without stabilisation
     "aim_kl_after_steps": 500000,
+    # the exact full-batch Gaussian KL; the minibatch k3 estimate aim_approx_kl (about 30 shot decisions per
+    # minibatch) spikes to 5-12 on single updates whose exact KL is 0.15, and stopped two runs that way
+    "aim_kl_metric": "aim_kl_exact",
     "entropy_below": 1.0,  # categorical heads, start 3.17, v3 never under 2.1
     "log_std_below": -4.5,  # floor is -5
     "no_shots_updates": 50,
@@ -54,10 +57,13 @@ def watchdog(rows, minutes_since_row):
     if last["grad_norm_max"] > RULES["grad_norm_max_above"]:
         return f"grad norm {last['grad_norm_max']:.2f} at update {last['update']}"
     w = rows[-RULES["aim_kl_window"]:]
-    if "aim_approx_kl" in last and last["agent_steps"] >= RULES["aim_kl_after_steps"] and len(w) == RULES["aim_kl_window"]:
-        kl = np.mean([r["aim_approx_kl"] for r in w])
+    # runs logged before aim_kl_exact existed fall back to the estimate
+    key = RULES["aim_kl_metric"] if any(RULES["aim_kl_metric"] in r for r in w) else "aim_approx_kl"
+    kls = [r[key] for r in w if key in r]  # (an update without shot decisions has no exact KL)
+    if kls and last["agent_steps"] >= RULES["aim_kl_after_steps"] and len(w) == RULES["aim_kl_window"]:
+        kl = np.mean(kls)
         if kl > RULES["aim_kl_mean_above"]:
-            return f"aim KL {kl:.4f} (mean of {len(w)} updates) at update {last['update']}"
+            return f"aim KL {kl:.4f} ({key}, mean of {len(w)} updates) at update {last['update']}"
     if np.mean([r["entropy"] for r in w]) < RULES["entropy_below"]:
         return f"categorical entropy collapse at update {last['update']}"
     if "log_std_x" in last and min(last["log_std_x"], last["log_std_y"]) < RULES["log_std_below"]:
@@ -83,6 +89,7 @@ def window_stats(rows, steps, width=250000):
     """Means of the training statistics over the updates in (steps - width, steps]."""
     w = [r for r in rows if steps - width < r["agent_steps"] <= steps]
     keys = ("reward_per_step", "entropy", "aim_entropy", "log_std_x", "log_std_y", "approx_kl", "clip_frac", "aim_approx_kl",
+            "aim_kl_exact", "aim_kl_mean_part", "aim_kl_std_part", "aim_mu_shift", "floor_hit_x", "floor_hit_y",
             "aim_clip_frac", "aim_off", "aim_mask_frac", "policy_loss", "aim_policy_loss", "value_loss", "grad_norm",
             "grad_norm_max", "visible_frac", "aim_cos", "hit_rate", "shots", "win_rate", "loss_rate")
     out = {"updates": len(w)}
