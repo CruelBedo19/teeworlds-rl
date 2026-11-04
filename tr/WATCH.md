@@ -15,7 +15,7 @@ box: ~/.twrl-watch/relay.sock (0700 klasör) [udp_tcp_relay server] ─UDP→ 12
 ## Canlı (box)
 
 ```bash
-cd "${REPO_DIR:?set REPO_DIR to the repo checkout}"
+cd <REPO_DIR>
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # bir kez, env numpy istiyor
 .venv/bin/python scripts/watch_match.py live --server-dir ../teeworlds-0.7.5/build-release
 ```
