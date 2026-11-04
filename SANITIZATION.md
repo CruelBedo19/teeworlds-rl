@@ -8,7 +8,7 @@ Before publishing, personal and infrastructure details were replaced with placeh
 |---|---|---|
 | SSH host alias of the author's dev server (`WATCH.md`, `tr/WATCH.md`, `scripts/watch_match.py`, `scripts/udp_tcp_relay.py`) | `<remote-host>` | Reveals the name of a private machine. Useless to others, and it is an extra target for scanning or social engineering. |
 | Linux user name and home path on that server (`/home/<name>/...`) | `/home/<user>/...` | The user name is a login name for the private machine. |
-| Absolute repo path on the server (`/opt/dev/<name>/teeworlds-rl`) | `<REPO_DIR>` | Exposes the server's directory layout and the author's name. |
+| Absolute repo path on the server (a path under the server's home or dev directory) | `<REPO_DIR>` | Exposes the server's directory layout. |
 | Local Claude Code session path and session id (`HANDOFF.md`, `tr/HANDOFF.md`) | `<project-dir>/<session-id>` | Contains the author's local user name and project folder. The id points to a private conversation file that is not in this repo anyway. |
 | Author name and personal e-mail in the `From:` line of `patches/*.patch` | `teeworlds-rl <noreply@users.noreply.github.com>` | A personal e-mail in a public repo invites spam and phishing. |
 
