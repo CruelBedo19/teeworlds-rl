@@ -6,7 +6,31 @@
 > Turkish originals of the docs are in [`tr/`](tr/). Details about removed personal/server information: [SANITIZATION.md](SANITIZATION.md).
 
 
-Date: 2026-10-18. Status: analysis only, no code changes.
+## Results and limitations
+
+**Short version: the environment and training pipeline work; the agent has not been shown to learn reliable aiming or combat.** Phase 3 (PPO self-play) is unfinished and development is paused.
+
+**What works**
+- The patched server runs at ~630k ticks/s per process and is deterministic; the Python environment passes 38 integration tests and a 9.6M-tick stress run (see `PLAN.md`).
+- A PPO self-play pipeline with a fixed evaluation protocol exists and can resume from checkpoints.
+
+**What the agent learned (best result so far)**
+- Seed 1 at 15M agent steps, 64 matches against its own untrained starting network (`ckpt_0000`): kills 0.078 vs 0, damage dealt/taken 5.25 / 2.70 (ratio 1.94), hit rate 0.052, aim cosine 0.37, wins/losses/draws 5 / 0 / 59. Eval files: `bench/results/phase3-long/` on the `phase3` branch.
+- Seed 3 peaks at 20M with a similar pattern (kills 0.094, aim cosine 0.35).
+
+**Limitations**
+- **Collapse.** In both long runs the policy collapses at about 22-25M steps: all discrete heads drift to maximum entropy, learning stops, and the agent plays like the untrained network again. The cause is not measured. ReDo, an aim log_std floor and an exact-KL watchdog kept a run stable to 30M, but it did not beat the 15M peak (damage ratio 1.82 at 30M).
+- **Seed dependence.** In the 3-seed 5M run, only seed 1 aimed consistently (mean aim cosine 0.14 / 0.06 / 0.01 for seeds 1 / 2 / 3). The aim gradient is noise-dominated, and the reward is very sparse (a nonzero reward in under 1% of steps; 5-11 rewarded decisions per batch of 4096).
+- **Weak baseline.** The opponent is the agent's own untrained network or a uniform-random policy, not a skilled player or a scripted bot. Win counts are small (5 of 64), there is no significance test, and the best result is a single seed.
+- **Not claimed.** Nothing here shows that the agent aims reliably or beats a human.
+
+Full tables, per-experiment write-ups and the current state: [`bench/results/`](bench/results/) and `HANDOFF.md` on the `phase3` branch.
+
+## License
+
+Code, tests and docs in this repository: [MIT](LICENSE). The files in `patches/` are modifications of the [Teeworlds](https://github.com/teeworlds/teeworlds) source and stay under the Teeworlds license (zlib-style, Copyright Magnus Auvinen).
+
+Date: 2026-10-18. Parts 1-3 below are the original analysis, written before any code.
 
 Goal: two AIs learn aim, movement, dodging and combat through self-play in 1v1 Deathmatch.
 
