@@ -1,39 +1,39 @@
-# Devir notu (yeni oturum veya yeni hesap için)
+# Handoff note (for a new session or a new account)
 
-Bu repo bir Claude Code oturumunda yapılan analizin çıktısıdır. Yeni bir oturumda şu sırayla devam et.
+This repo is the output of an analysis done in a Claude Code session. In a new session, continue in this order.
 
-## Şu an nerede
+## Where we are
 
-- Analiz bitti: Teeworlds 0.7.5 server ([README.md](README.md) Bölüm 1) ve tmlp (Bölüm 2).
-- Mimari önerisi hazır (Bölüm 3), faz planı [PLAN.md](PLAN.md).
-- Faz 0, 1 ve 2 bitti: patch'ler [patches/](patches/) (`git am patches/*.patch`), ortam şartnamesi [ENVIRONMENT.md](ENVIRONMENT.md), sonuçlar [PLAN.md](PLAN.md). Faz 3'e (PPO) geçmeden önce kullanıcıdan açık onay al.
+- Analysis is done: Teeworlds 0.7.5 server ([README.md](README.md) Part 1) and tmlp (Part 2).
+- The architecture proposal is ready (Part 3), phase plan in [PLAN.md](PLAN.md).
+- Phases 0, 1 and 2 are done: patches in [patches/](patches/) (`git am patches/*.patch`), environment spec in [ENVIRONMENT.md](ENVIRONMENT.md), results in [PLAN.md](PLAN.md). Get explicit approval from the user before moving to Phase 3 (PPO).
 
-## Çalışma ortamı
+## Working environment
 
-- Teeworlds kaynağı: `git clone --branch 0.7.5 https://github.com/teeworlds/teeworlds`, sonra `git -c url."https://github.com/".insteadOf="git://github.com/" submodule update --init` (`.gitmodules` eski `git://` adreslerini kullanıyor). Patch'i `git am patches/*.patch` ile uygula.
-- Build (CMake 4 ile): `CMAKE_POLICY_VERSION_MINIMUM=3.5 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DCLIENT=OFF`. Dummy'li benchmark için ayrıca `-DCMAKE_CXX_FLAGS=-DCONF_DEBUG` ile `build-bench`.
-- Satır numaraları alt ajan raporlarından alındı, tek tek doğrulanmadı. Kod yazmadan önce ilgili dosyalarda kontrol et.
-- `SERVER_TICK_SPEED` tanımının yeri doğrulanmadı (değeri 50).
+- Teeworlds source: `git clone --branch 0.7.5 https://github.com/teeworlds/teeworlds`, then `git -c url."https://github.com/".insteadOf="git://github.com/" submodule update --init` (`.gitmodules` uses the old `git://` addresses). Apply the patches with `git am patches/*.patch`.
+- Build (with CMake 4): `CMAKE_POLICY_VERSION_MINIMUM=3.5 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DCLIENT=OFF`. For the benchmark with dummies, also build `build-bench` with `-DCMAKE_CXX_FLAGS=-DCONF_DEBUG`.
+- Line numbers come from sub-agent reports and were not verified one by one. Check them in the relevant files before writing code.
+- The location of the `SERVER_TICK_SPEED` definition is not verified (its value is 50).
 
-## Yeni oturuma verilecek ilk mesaj
+## First message for the new session
 
-> teeworlds-rl reposundaki README.md, PLAN.md ve HANDOFF.md dosyalarını oku. Faz 0 (hız ölçümü) için dosya düzeyinde plan çıkar. Ben onaylamadan kod yazma.
+> Read README.md, PLAN.md and HANDOFF.md in the teeworlds-rl repo. Produce a file-level plan for Phase 0 (speed measurement). Do not write code until I approve.
 
-## Aynı oturumu başka hesapta açmak
+## Opening the same session on another account
 
-Oturum hesaba bağlı değil, yerel dosya:
+The session is not tied to the account; it is a local file:
 
 ```
 ~/.claude/projects/<project-dir>/<session-id>.jsonl
 ```
 
-Aynı bilgisayarda: `/logout`, `/login` (yeni hesap), sonra proje klasöründe
+On the same computer: `/logout`, `/login` (new account), then in the project folder run
 `claude --resume <session-id>`.
-Başka bilgisayarda: dosyayı aynı yola kopyala, aynı komutu çalıştır.
-Oturum olmadan da devam edilebilir: bu repo yeterli bağlamı taşır.
+On another computer: copy the file to the same path and run the same command.
+You can also continue without the session: this repo carries enough context.
 
-## Sonraki adım
+## Next step
 
-Maç izleme hazır: [WATCH.md](WATCH.md). Sonraki: Faz 3 ([PLAN.md](PLAN.md)). Kullanıcı onayı olmadan başlama.
+Match watching is ready: [WATCH.md](WATCH.md). Next: Phase 3 ([PLAN.md](PLAN.md)). Do not start without user approval.
 
-Python ortamı numpy istiyor: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`. Testler: `TWRL_SERVER_DIR=<build-release> .venv/bin/python tests/test_env.py -v`.
+The Python environment needs numpy: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`. Tests: `TWRL_SERVER_DIR=<build-release> .venv/bin/python tests/test_env.py -v`.

@@ -1,51 +1,51 @@
-# Agent maçını izlemek
+# Watching an agent match
 
-Server internete açılmaz. Canlı izleme mevcut SSH bağlantısının içinden, demo izleme dosya kopyalayarak yapılır.
+The server is not exposed to the internet. Live watching goes through the existing SSH connection; demo watching works by copying files.
 
 ```
 Mac: Teeworlds ─UDP→ 127.0.0.1:8303 [udp_tcp_relay client] ─TCP→ 127.0.0.1:8304 ═ ssh -L ═▶
-box: ~/.twrl-watch/relay.sock (0700 klasör) [udp_tcp_relay server] ─UDP→ 127.0.0.1:<sv_port> teeworlds_srv
+box: ~/.twrl-watch/relay.sock (0700 folder) [udp_tcp_relay server] ─UDP→ 127.0.0.1:<sv_port> teeworlds_srv
 ```
 
-- Agent'lar iki oyuncu slotunu doldurur (`sv_player_slots 2`), bağlanan herkes spectator olur.
-- Agent'lar client'ta `AI-1` ve `AI-2` olarak görünür. Server browser'da oyuncu sayısı 0 görünür, çünkü server tarafı botlar server info'ya girmez.
-- Relay her UDP paketini 2 byte uzunluk önekiyle taşır. Yalnız Python standart kütüphanesi kullanır.
-- Varsayılan harita `lms1`. Random de `--policy chase` de tanı araçlarıdır, AI değildir: chase yalnız test amaçlı kovalama script'idir ve duvarlara ateş eder.
+- The agents fill the two player slots (`sv_player_slots 2`); everyone who connects becomes a spectator.
+- On the client, the agents appear as `AI-1` and `AI-2`. The server browser shows 0 players, because server-side bots do not enter the server info.
+- The relay carries each UDP packet with a 2-byte length prefix. It uses only the Python standard library.
+- The default map is `lms1`. Both random and `--policy chase` are diagnostic tools, not AI: chase is only a scripted chasing script for testing and it shoots at walls.
 
-## Canlı (box)
+## Live (box)
 
 ```bash
 cd "${REPO_DIR:?set REPO_DIR to the repo checkout}"
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # bir kez, env numpy istiyor
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # once, the env needs numpy
 .venv/bin/python scripts/watch_match.py live --server-dir ../teeworlds-0.7.5/build-release
 ```
 
-Bir relay socket'ini aynı anda tek maç kullanabilir. İkinci bir `live` socket'i devralmak yerine başlamayı reddeder; başka bir yol için `--relay-socket`.
+Only one match can use a relay socket at a time. A second `live` refuses to start instead of taking over the socket; use `--relay-socket` for a different path.
 
-Ctrl+C maçı ve relay'i kapatır.
+Ctrl+C stops the match and the relay.
 
-## Canlı (Mac)
+## Live (Mac)
 
 ```bash
-scp <remote-host>:<REPO_DIR>/scripts/udp_tcp_relay.py ~/udp_tcp_relay.py   # bir kez
+scp <remote-host>:<REPO_DIR>/scripts/udp_tcp_relay.py ~/udp_tcp_relay.py   # once
 ssh -N -L 127.0.0.1:8304:/home/<user>/.twrl-watch/relay.sock <remote-host>              # terminal 1
 python3 ~/udp_tcp_relay.py client --listen-udp 127.0.0.1:8303 --connect-tcp 127.0.0.1:8304   # terminal 2
 ```
 
-Teeworlds client'ta F1 konsolu: `connect localhost:8303`.
+In the Teeworlds client, open the F1 console: `connect localhost:8303`.
 
 ## Demo
 
 ```bash
-# box: 5 episode'u (5 dakikalık oyun) birkaç saniyede kaydeder
+# box: records 5 episodes (5 minutes of game time) in a few seconds
 .venv/bin/python scripts/watch_match.py record --server-dir ../teeworlds-0.7.5/build-release --name twrl-random --episodes 5
 # Mac
 scp <remote-host>:/home/<user>/.local/share/teeworlds/demos/twrl-random.demo ~/Library/Application\ Support/Teeworlds/demos/
 ```
 
-Teeworlds client'ta Demos sekmesinden açılır.
+Open it from the Demos tab in the Teeworlds client.
 
-## Testler
+## Tests
 
 ```bash
 .venv/bin/python tests/test_relay.py -v
