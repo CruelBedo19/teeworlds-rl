@@ -1,5 +1,9 @@
 # Teeworlds RL Self-Play: Analiz ve Mimari Önerisi
 
+> **Durum: geliştirme şu an durdu (2026-11-02), istenirse devam edilebilir.**
+> Faz 0-2 `main` dalında. Son çalışma, Faz 3 (PPO eğitimi), `phase3` dalında.
+> Kaldığı yerden devam için `phase3` dalına geç ve `HANDOFF.md` içindeki "Şu an nerede" ile "Kaldığımız yer ve sonraki adım" bölümlerini oku.
+
 Tarih: 2026-10-18. Durum: yalnızca analiz, kod değişikliği yok.
 
 Hedef: iki AI'ın 1v1 Deathmatch'te self-play ile aim, movement, dodge ve combat öğrenmesi.

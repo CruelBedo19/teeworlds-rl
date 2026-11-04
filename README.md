@@ -1,5 +1,11 @@
 # Teeworlds RL Self-Play: Analysis and Architecture Proposal
 
+> **Status: development is paused (as of 2026-11-02) and can be resumed at any time.**
+> Phases 0-2 are on `main`. The latest work, Phase 3 (PPO training), lives on the [`phase3`](../../tree/phase3) branch.
+> To continue from where it stopped, check out `phase3` and read the "Where we are" and "Where we stopped and next step" sections of `HANDOFF.md`.
+> Turkish originals of the docs are in [`tr/`](tr/). Details about removed personal/server information: [SANITIZATION.md](SANITIZATION.md).
+
+
 Date: 2026-10-18. Status: analysis only, no code changes.
 
 Goal: two AIs learn aim, movement, dodging and combat through self-play in 1v1 Deathmatch.
