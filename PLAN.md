@@ -1,162 +1,161 @@
-# Faz planı
+# Phase plan
 
-Durum: **Faz 0, 1 ve 2 tamamlandı (2026-10-19).** Faz 3: PPO altyapısı ve kısa bir deneme koşusu var (2026-10-20); uzun eğitim başlamadı. Mimari ve gerekçeler için [README.md](README.md).
+Status: **Phases 0, 1 and 2 complete (2026-10-19).** Phase 3: PPO infrastructure and a short trial run exist (2026-10-20), and later experiments run on the `phase3` branch (see [HANDOFF.md](HANDOFF.md) for the latest state; **development is paused as of 2026-11-02**). See [README.md](README.md) for the architecture and rationale.
 
-Hedef: iki AI'ın Teeworlds 0.7.5'te 1v1 Deathmatch self-play ile aim, movement, dodge ve combat öğrenmesi.
+Goal: two AIs learn aim, movement, dodging and combat through 1v1 Deathmatch self-play in Teeworlds 0.7.5.
 
-## Faz 0: Hız ölçümü (karar kapısı)
+## Phase 0: Speed measurement (decision gate)
 
-Amaç: server'ın gerçek zamandan hızlı kaç tick/sn atabildiğini ölç. Bu sayı mimarinin geri kalanını belirler.
+Purpose: measure how many ticks/s the server can run faster than real time. This number determines the rest of the architecture.
 
-- [x] Teeworlds 0.7.5'i Release olarak derle (`teeworlds_srv`, client kapalı).
-- [x] `sv_rl_mode` (0 = gerçek zaman, 1 = hızlı tick, 2 = hızlı tick + yalın snapshot/network). Patch: [patches/](patches/), teeworlds branch `rl/phase0`, yalnız `engine/server/server.cpp`, `server.h`, `engine/shared/config_variables.h`.
+- [x] Build Teeworlds 0.7.5 as Release (`teeworlds_srv`, client off).
+- [x] `sv_rl_mode` (0 = real time, 1 = fast ticks, 2 = fast ticks + minimal snapshot/network). Patch: [patches/](patches/), teeworlds branch `rl/phase0`, only `engine/server/server.cpp`, `server.h`, `engine/shared/config_variables.h`.
 - [x] `sv_rl_seed`, `sv_rl_bench_ticks`, `sv_rl_hash_interval`.
-- [x] Benchmark matrisi ve determinizm testi: [bench/run_bench.py](bench/run_bench.py), sonuçlar [bench/results/](bench/results/).
+- [x] Benchmark matrix and determinism test: [bench/run_bench.py](bench/run_bench.py), results in [bench/results/](bench/results/).
 
-### Sonuç (AMD Ryzen 5 3600, 6 çekirdek / 12 thread, `dm1`)
+### Result (AMD Ryzen 5 3600, 6 cores / 12 threads, `dm1`)
 
-Medyan tick/s, 3 tekrar. Hızlı modlar 5 000 000 tick, mod 0 3000 tick.
+Median ticks/s, 3 repetitions. Fast modes ran 5,000,000 ticks, mode 0 ran 3000 ticks.
 
-| Durum | tick/s/süreç | toplam |
+| Case | ticks/s/process | total |
 |---|---|---|
-| mod 0, oyuncusuz / 2 dummy | 50 | 50 |
-| mod 1, oyuncusuz | 870 726 | |
-| mod 2, oyuncusuz | 2 952 218 | |
-| mod 1, 2 dummy | 409 449 | |
-| mod 2, 2 dummy | 633 979 | |
-| mod 2, 2 dummy, 2 süreç | 625 771 | 1 252 108 |
-| mod 2, 2 dummy, 4 süreç | 615 991 | 2 464 768 |
-| mod 2, 2 dummy, 8 süreç | 505 802 | 4 056 516 |
-| mod 2, 2 dummy, 12 süreç | 374 895 | 4 489 251 |
+| mode 0, no players / 2 dummies | 50 | 50 |
+| mode 1, no players | 870,726 | |
+| mode 2, no players | 2,952,218 | |
+| mode 1, 2 dummies | 409,449 | |
+| mode 2, 2 dummies | 633,979 | |
+| mode 2, 2 dummies, 2 processes | 625,771 | 1,252,108 |
+| mode 2, 2 dummies, 4 processes | 615,991 | 2,464,768 |
+| mode 2, 2 dummies, 8 processes | 505,802 | 4,056,516 |
+| mode 2, 2 dummies, 12 processes | 374,895 | 4,489,251 |
 
-Determinizm: aynı config iki çalıştırma, mod 0/1/2 arası ve 4 paralel süreç aynı state hash dizisini üretti.
+Determinism: two runs with the same config, across modes 0/1/2, and 4 parallel processes all produced the same state hash sequence.
 
-Sınırlar: debug dummy'ler yalnız yürür (ateş, zıplama, hook yok), bu yüzden sayılar savaş yükü olmadan üst sınırdır. Seed bu senaryoda sonucu değiştirmiyor (DM'de `rand()` kullanan yol tetiklenmiyor). İkisi de Faz 1'de bridge aksiyonlarıyla yeniden ölçülmeli.
+Limits: the debug dummies only walk (no fire, jump or hook), so the numbers are an upper bound without combat load. The seed does not change the result in this scenario (the path that uses `rand()` in DM is not triggered). Both must be re-measured in Phase 1 with bridge actions.
 
-Karar: süreç başına hız 2000 tick/s karar noktasının ~300 katı. Ayrı bir hafif simülatöre gerek yok; darboğaz Python tarafı olacak.
+Decision: per-process speed is ~300 times the 2000 ticks/s decision threshold. A separate light simulator is not needed; the bottleneck will be the Python side.
 
-## Faz 1: Köprü ve Python ortamı
+## Phase 1: Bridge and Python environment
 
-- [x] `sv_rl_socket` ayarlıysa server Python'un dinlediği Unix socket'e bağlanır ve iki agent ekler (`OnClientConnected(id, true)`, Release'te çalışır, `CONF_DEBUG` gerekmez). Patch: [patches/0002-*](patches/), teeworlds branch `rl/phase1`.
-- [x] Lockstep: her `sv_rl_action_ticks` (varsayılan 2) tick'te OBS gönderilir, aksiyon beklenir; `CGameContext::OnTick` başında, `m_World.Tick()` öncesinde.
-- [x] Girdi `CPlayer::OnDirectInput` + `OnPredictedInput` ile, fire sayacı client gibi.
-- [x] Event'ler `CCharacter::TakeDamage` ve `Die` içindeki iki gözlemci hook'tan; reward ağırlıkları Python'da.
-- [x] Reset `restart` komutuyla aynı yol (`DoWarmup(0)` → `StartMatch`), process yeniden başlamaz.
-- [x] Sabit boyutlu binary protokol v1: [twrl/protocol.py](twrl/protocol.py) ve `src/game/server/rlenv.h`.
-- [x] Python ortamı (yalnız stdlib): [twrl/env.py](twrl/env.py); testler [tests/test_env.py](tests/test_env.py); uzun koşu ve ölçüm [scripts/random_rollout.py](scripts/random_rollout.py).
-- [ ] N süreçli vektörlü sarmalayıcı: Faz 2'ye (şimdilik rollout script'i `multiprocessing` ile paralel koşuyor).
+- [x] If `sv_rl_socket` is set, the server connects to a Unix socket Python listens on and adds two agents (`OnClientConnected(id, true)`, works in Release, no `CONF_DEBUG` needed). Patch: [patches/0002-*](patches/), teeworlds branch `rl/phase1`.
+- [x] Lockstep: every `sv_rl_action_ticks` (default 2) ticks the server sends OBS and waits for an action; this happens at the start of `CGameContext::OnTick`, before `m_World.Tick()`.
+- [x] Input goes through `CPlayer::OnDirectInput` + `OnPredictedInput`, with the fire counter like a client.
+- [x] Events come from two observer hooks inside `CCharacter::TakeDamage` and `Die`; reward weights live in Python.
+- [x] Reset takes the same path as the `restart` command (`DoWarmup(0)` → `StartMatch`); the process does not restart.
+- [x] Fixed-size binary protocol v1: [twrl/protocol.py](twrl/protocol.py) and `src/game/server/rlenv.h`.
+- [x] Python environment (stdlib only): [twrl/env.py](twrl/env.py); tests [tests/test_env.py](tests/test_env.py); long run and measurement [scripts/random_rollout.py](scripts/random_rollout.py).
+- [ ] N-process vectorized wrapper: moved to Phase 2 (for now the rollout script runs in parallel with `multiprocessing`).
 
-Gözlem v1 (23 float, ham birim): kendi alive, pos, vel, health, armor, weapon, ammo, reload, grounded, jumped, hook state ve göreli hook konumu; rakip alive, göreli pos, vel, weapon, hook state; episode ilerlemesi. Rakibin health/armor/ammo değeri insan oyuncu da göremediği için yok. Aksiyon v1: direction, jump, fire, hook, target_x/y. Silah değişimi yok.
+Observation v1 (23 floats, raw units): own alive, pos, vel, health, armor, weapon, ammo, reload, grounded, jumped, hook state and relative hook position; opponent alive, relative pos, vel, weapon, hook state; episode progress. The opponent's health/armor/ammo are not included because a human player cannot see them either. Action v1: direction, jump, fire, hook, target_x/y. No weapon switching.
 
-### Sonuç
+### Result
 
-- 25 entegrasyon testi geçti: hareket, zıplama, ateş, hook, hasar/kill/skor tutarlılığı, debug kill ile suicide, reset, determinizm, hata durumları (bozuk mesaj, yanlış seq, timeout, kopma, server kill, temiz kapanış).
-- Uzun koşu: 3200 episode, 9.6M tick, 8 paralel env. Çökme, protokol hatası, timeout yok. Her step'te `Δskor == kill − suicide`, verilen hasar == rakibin aldığı hasar, kill == rakibin ölümü: 0 ihlal. Server RSS sabit (~15-16 MB, 250 episode'da en fazla +8 KB).
-- Reset süresi p50 0.05 ms (yaklaşık 28 tick).
-- Determinizm: aynı seed ile episode'lar hem aynı süreçte hem taze süreçte birebir aynı; farklı seed farklı; mod 0, 1, 2 aynı. Bridge kapalıyken Faz 0 hash dizisi birebir aynı.
-- ASan/UBSan: yeni koddan rapor yok. Vanilla `CJobPool` kapanışındaki çift `pthread_join` ASan'da exit 1 veriyor (bridge kapalıyken de), kapsam dışı.
-- Throughput (`bench/results/2026-10-19-phase1-scaling.csv`), toplam tick/s, K=2:
+- 25 integration tests passed: movement, jumping, firing, hook, damage/kill/score consistency, suicide via debug kill, reset, determinism, error cases (malformed message, wrong seq, timeout, disconnect, server kill, clean shutdown).
+- Long run: 3200 episodes, 9.6M ticks, 8 parallel envs. No crash, protocol error or timeout. At every step `Δscore == kill − suicide`, damage dealt == damage the opponent took, kill == opponent death: 0 violations. Server RSS stable (~15-16 MB, at most +8 KB over 250 episodes).
+- Reset time p50 0.05 ms (about 28 ticks).
+- Determinism: with the same seed, episodes are identical both in the same process and in a fresh process; a different seed differs; modes 0, 1, 2 are identical. With the bridge off, the Phase 0 hash sequence is identical.
+- ASan/UBSan: no reports from the new code. The double `pthread_join` in the vanilla `CJobPool` shutdown gives exit 1 under ASan (also with the bridge off); out of scope.
+- Throughput (`bench/results/2026-10-19-phase1-scaling.csv`), total ticks/s, K=2:
 
-| env | random dm1 toplam | chase lms1 toplam | step latency p50 / p99 (µs) |
+| env | random dm1 total | chase lms1 total | step latency p50 / p99 (µs) |
 |---|---|---|---|
-| 1 | 45 521 | 56 542 | 36 / 60 |
-| 2 | 82 635 | 97 602 | 38 / 64 |
-| 4 | 140 851 | 167 994 | 45 / 75 |
-| 8 | 240 130 | 279 064 | 54 / 89 |
-| 12 | 269 590 | 320 044 | 58 / 269 |
+| 1 | 45,521 | 56,542 | 36 / 60 |
+| 2 | 82,635 | 97,602 | 38 / 64 |
+| 4 | 140,851 | 167,994 | 45 / 75 |
+| 8 | 240,130 | 279,064 | 54 / 89 |
+| 12 | 269,590 | 320,044 | 58 / 269 |
 
-Darboğaz Faz 0'da beklendiği gibi Python ve IPC: server tek başına ~630k tick/s, bridge ile env başına ~45k tick/s.
+As expected in Phase 0, the bottleneck is Python and IPC: the server alone does ~630k ticks/s, with the bridge ~45k ticks/s per env.
 
-Not: dm1'de random ajanlar neredeyse hiç karşılaşmıyor (6M tick'te 3 kill). Savaş testleri küçük `lms1` haritasında, yalnız test amaçlı bir kovalama script'iyle ([twrl/testing.py](twrl/testing.py)) yapıldı. Faz 2 için küçük harita seçimi önemli.
+Note: on dm1, random agents almost never meet (3 kills in 6M ticks). Combat tests ran on the small `lms1` map, only with a test-only chasing script ([twrl/testing.py](twrl/testing.py)). Choosing a small map matters for Phase 2.
 
-## Faz 2: Gözlem ve ortam katmanı
+## Phase 2: Observation and environment layer
 
-Ayrıntılı ve kesin şartname: [ENVIRONMENT.md](ENVIRONMENT.md). Patch: [patches/0004-*](patches/), teeworlds branch `rl/phase2`.
+Detailed and exact specification: [ENVIRONMENT.md](ENVIRONMENT.md). Patch: [patches/0004-*](patches/), teeworlds branch `rl/phase2`.
 
-- [x] Protokol v2: aksiyon değişmedi; OBS sabit 2340 byte, HELLO haritanın collision'ını bir kez gönderir.
-- [x] Mekânsal gözlem: agent'ın tile'ı merkezde 33×25 tile egosentrik collision ızgarası (solid, death, nohook).
-- [x] 67 boyutlu vektör: kendi durum, rakip (yalnız insanın göreceği dikdörtgen içinde), atış hattı biti, en yakın 4 mermi, episode ilerlemesi. Rakibin can/zırh/ammo değeri yok.
-- [x] Seed'li spawn çeşitliliği: her episode'un ilk spawn'ı iki farklı rastgele harita spawn noktası (yalnız RL modunda).
-- [x] `VecTeeworldsEnv`: N server tek Python process'ten, otomatik reset, numpy dizileri, `grid_format="codes"` seçeneği.
-- [x] Testler (38 entegrasyon + 2 relay), uzun stres testi, Faz 1 ile aynı yük altında karşılaştırmalı benchmark.
+- [x] Protocol v2: the action is unchanged; OBS is a fixed 2340 bytes, and HELLO sends the map's collision once.
+- [x] Spatial observation: a 33×25-tile egocentric collision grid centered on the agent's tile (solid, death, nohook).
+- [x] 67-dimensional vector: own state, opponent (only inside the rectangle a human would see), line-of-fire bit, nearest 4 projectiles, episode progress. No opponent health/armor/ammo.
+- [x] Seeded spawn variety: the first spawn of each episode uses two different random map spawn points (RL mode only).
+- [x] `VecTeeworldsEnv`: N servers from a single Python process, auto-reset, numpy arrays, `grid_format="codes"` option.
+- [x] Tests (38 integration + 2 relay), long stress test, comparative benchmark under the same load as Phase 1.
 
-### Sonuç
+### Result
 
-- 38/38 entegrasyon testi ve 2/2 relay testi geçti. Grid, haritanın kendisinden hesaplanan beklenen pencereyle her step'te birebir aynı (dm6'da death ve nohook tile'ları dahil); rakip göreli konumu, hızı, görüş alanı ve atış hattı ham durumla doğrulandı; mermi slotları sıralı ve sınırlar içinde.
-- Determinizm: aynı seed ile episode'lar aynı process'te ve taze process'te birebir aynı; farklı seed farklı başlangıç ve iz; mod 0, 1, 2 aynı; vector env tek env ile birebir aynı. Bridge kapalıyken Faz 0 hash dizisi hâlâ birebir aynı.
-- Stres: 8 env, toplam 3200 episode ve 9.6M tick (lms1 random, dm6 random, lms1 chase). Çökme, desync, NaN/Inf, aralık dışı değer, olay tutarsızlığı yok. dm6'da 636 suicide (death tile) doğal olarak üretildi. Server RSS ısınmadan sonra sabit, Python ~45 MB.
-- ASan/UBSan: yeni koddan rapor yok (yalnız vanilla `CJobPool` kapanışındaki bilinen çift `pthread_join`).
-- Payload: env step başına 2340 + 16 byte (Faz 1: 252 + 16). BuildObs server'da step başına 1.4-3 µs.
-- Throughput, aynı yük altında arka arkaya (`bench/results/2026-10-19-phase1-vs-phase2.csv`, load 10-15):
+- 38/38 integration tests and 2/2 relay tests passed. The grid matches the expected window computed from the map itself exactly at every step (including death and nohook tiles on dm6); opponent relative position, velocity, field of view and line of fire were verified against raw state; projectile slots are ordered and within bounds.
+- Determinism: with the same seed, episodes are identical in the same process and in a fresh process; a different seed gives a different start and trace; modes 0, 1, 2 are identical; the vector env is identical to a single env. With the bridge off, the Phase 0 hash sequence is still identical.
+- Stress: 8 envs, 3200 episodes in total and 9.6M ticks (lms1 random, dm6 random, lms1 chase). No crash, desync, NaN/Inf, out-of-range value or event inconsistency. 636 suicides (death tile) occurred naturally on dm6. Server RSS is stable after warm-up, Python ~45 MB.
+- Payload: 2340 + 16 bytes per env step (Phase 1: 252 + 16). BuildObs takes 1.4-3 µs per step on the server.
+- Throughput, back to back under the same load (`bench/results/2026-10-19-phase1-vs-phase2.csv`, load 10-15):
 
-| env | Faz 1, env başına process | Faz 2, env başına process | Faz 2, tek process |
+| env | Phase 1, process per env | Phase 2, process per env | Phase 2, single process |
 |---|---|---|---|
-| 1 | 37 636 | 30 036 | 29 944 |
-| 4 | 119 538 | 94 653 | 54 670 |
-| 8 | 183 594 | 141 377 | 84 947 |
-| 12 | 212 709 | 164 822 | 90 660 |
+| 1 | 37,636 | 30,036 | 29,944 |
+| 4 | 119,538 | 94,653 | 54,670 |
+| 8 | 183,594 | 141,377 | 84,947 |
+| 12 | 212,709 | 164,822 | 90,660 |
 
-Faz 2 aynı düzende yaklaşık %20-23 yavaş: Python'da step başına ~20 µs çözme (grid bitleri, kopyalar), server'da tick başına ~2 µs. Tek Python process'i env sayısından bağımsız ~90k tick/s'de doyuyor; Faz 3'te birden fazla worker process gerekecek.
+With the same layout, Phase 2 is about 20-23% slower: ~20 µs per step of decoding in Python (grid bits, copies) and ~2 µs per tick on the server. A single Python process saturates at ~90k ticks/s regardless of env count; Phase 3 will need several worker processes.
 
-## Faz 3: PPO (eğitim başlangıcı)
+## Phase 3: PPO (start of training)
 
-- [x] PPO self-play altyapısı: [twrl/ppo.py](twrl/ppo.py), [scripts/train_ppo.py](scripts/train_ppo.py). Tek ağ iki agent'ı da oynar, rastgele ağırlıklardan başlar. Grid için küçük CNN, vektör için MLP, ortak gövde, actor/critic başları. Aksiyon başları: yön 3, zıplama 2, ateş 2, hook 2, nişan 16 yön.
-- [x] Ödüller env'in kendi ağırlıkları, değiştirilmedi (kill +1, death −1, suicide −2, hasar ±0.02). Chase eğitimde yok.
-- [x] Zaman sınırıyla biten episode'larda son gözlemden bootstrap (truncation gerçek son değil).
-- [x] Sonlu loss/gradyan kontrolü (NaN/Inf'te durur), checkpoint kaydetme/yükleme ve devam ettirme testleri: [tests/test_ppo.py](tests/test_ppo.py).
-- [x] Davranış ölçümü: [scripts/eval_policy.py](scripts/eval_policy.py). Ölçümler ödüle girmez.
-- [x] Tasarım analizi (2026-10-20, `bench/results/phase3-design/`): darboğaz, worker'lar, nişan temsili, ödül seyrekliği, sabit değerlendirme, checkpoint/resume. Ayrıntı aşağıda.
-- [ ] Uzun eğitim, hafıza (GRU), rakip havuzu.
+- [x] PPO self-play infrastructure: [twrl/ppo.py](twrl/ppo.py), [scripts/train_ppo.py](scripts/train_ppo.py). One network plays both agents and starts from random weights. A small CNN for the grid, an MLP for the vector, a shared trunk, actor/critic heads. Action heads: direction 3, jump 2, fire 2, hook 2, aim 16 directions.
+- [x] Rewards are the env's own weights, unchanged (kill +1, death −1, suicide −2, damage ±0.02). Chase is not used in training.
+- [x] For episodes ending at the time limit, bootstrap from the last observation (truncation is not a real end).
+- [x] Finite loss/gradient check (stops on NaN/Inf), checkpoint save/load and resume tests: [tests/test_ppo.py](tests/test_ppo.py).
+- [x] Behavior measurement: [scripts/eval_policy.py](scripts/eval_policy.py). Measurements do not enter the reward.
+- [x] Design analysis (2026-10-20, `bench/results/phase3-design/`): bottleneck, workers, aim representation, reward sparsity, fixed evaluation, checkpoint/resume. Details below.
+- [ ] Long training, memory (GRU), opponent pool.
 
-### Kısa deneme (2026-10-20, `bench/results/phase3-short/`)
+### Short trial (2026-10-20, `bench/results/phase3-short/`)
 
-lms1, 8 env, 400 güncelleme, 819 200 agent step (~410k env step, ~2.3 saat oyun zamanı), 12.5 dakika, CPU. **Öğrenme kanıtı değil**, yalnız döngünün çalıştığını gösterir.
+lms1, 8 envs, 400 updates, 819,200 agent steps (~410k env steps, ~2.3 hours of game time), 12.5 minutes, CPU. **Not evidence of learning**; it only shows the loop works.
 
-- Bütün loss, gradyan ve KL değerleri sonlu; grad norm en fazla 1.04 (clip 0.5), approx KL en fazla 0.018. Checkpoint geri yüklenince ağ birebir aynı.
-- Entropi 5.95'ten (düzgün dağılım) ~5.0-5.3'e indi: politika rastgelelikten uzaklaşıyor (zıplama %50 → %62, ateş %50 → %43).
-- Değerlendirme, sabit seed'li 64 agent-episode, stokastik örnekleme:
+- All loss, gradient and KL values are finite; grad norm at most 1.04 (clip 0.5), approx KL at most 0.018. After a checkpoint is restored, the network is bit-identical.
+- Entropy fell from 5.95 (uniform) to ~5.0-5.3: the policy moves away from randomness (jump 50% → 62%, fire 50% → 43%).
+- Evaluation, 64 agent-episodes with a fixed seed, stochastic sampling:
 
-| | başlangıç (ckpt_0000) | son | düzgün rastgele |
+| | start (ckpt_0000) | final | uniform random |
 |---|---|---|---|
-| kill / episode | 0.000 | 0.094 | 0.000 |
-| verilen hasar / episode | 2.36 | 4.44 | 1.19 |
-| isabet oranı (hasar/atış) | 0.021 | 0.039 | 0.011 |
-| rakip görünür | 0.62 | 0.68 | 0.63 |
-| görünürken atış hattı açık | 0.47 | 0.55 | 0.38 |
-| nişan–rakip yönü cos | 0.002 | 0.014 | 0.005 |
+| kills / episode | 0.000 | 0.094 | 0.000 |
+| damage dealt / episode | 2.36 | 4.44 | 1.19 |
+| hit rate (damage/shot) | 0.021 | 0.039 | 0.011 |
+| opponent visible | 0.62 | 0.68 | 0.63 |
+| line of fire clear while visible | 0.47 | 0.55 | 0.38 |
+| aim–opponent direction cos | 0.002 | 0.014 | 0.005 |
 
-- Karşılıklı maç (her iki tarafta 64 episode): son politika başlangıca ve rastgeleye karşı **üstün değil** (hasar 1.52 vs 1.66, 1.19 vs 1.36; kill 0 vs 0.016, 0.016 vs 0). Fark gürültü düzeyinde.
-- Yorum: self-play'de karşılaşma ve hasar biraz artmış olabilir, ama nişan almayı öğrenmemiş (cos ≈ 0) ve rakiplere karşı avantaj yok. Örnek küçük, anlamlılık testi yapılmadı. Ödül çok seyrek: adım başına ortalama ödül ~0.
+- Head-to-head match (64 episodes on each side): the final policy is **not superior** to the start or to random (damage 1.52 vs 1.66, 1.19 vs 1.36; kills 0 vs 0.016, 0.016 vs 0). The difference is at noise level.
+- Interpretation: in self-play, encounters and damage may have risen slightly, but it has not learned to aim (cos ≈ 0) and has no advantage over the opponents. The sample is small and no significance test was run. The reward is very sparse: the mean reward per step is ~0.
 
-### Tasarım analizi (2026-10-20)
+### Design analysis (2026-10-20)
 
-- **Darboğaz sinir ağı hesabı.** 8 env'de agent step başına: inference ~107 µs, env (simülasyon + bridge) ~10 µs, PPO update ~555 µs. Collection sırasında 8 server toplam 0.12 çekirdek kullanıyor. Ağın %63'ü tam çözünürlükte (25×33) ilk iki konvolüsyon.
-- **Worker process'leri fayda sağlamıyor:** aynı 6 çekirdekte collection en fazla %12 hızlanıyor (`worker_collect.json`), update hiç. Uygulanmadı. Env sayısını artırmak (inference batch'i) daha etkili.
-- **`torch.compile`** update'i 1.7× hızlandırıyor, sayılar eager ile ~1e-7 aynı; `--compile` olarak eklendi. 6 torch thread en iyisi (12'de SMT yavaşlatıyor).
-- **Uçtan uca** (`throughput.csv`): 8 env eager 1523, 16 env compile 2344, 32 env compile 2503 agent step/s.
-- **Nişan** (`aim_study.json`): gerçek durumlarda kusursuz nişanla bile vurulabilir oran 16 yönde %40, 32'de %69, 64'te %96, sürekli nişanda %100. Bandit öğrenme testinde 2D Gauss vektör 150k örnekte %98 isabet, kategorikler %14-21, açıdan Gauss %31. Öneri: 2D Gauss nişan vektörü (karar kullanıcıda, henüz değiştirilmedi).
-- **Ödül seyrekliği** (`reward_sparsity.json`, ödül değiştirilmeden): sıfırdan farklı ödül agent adımlarının %0.24'ünde (rastgele) ile %0.77'sinde (kısa eğitimin sonu); kill 1/50k ile 1/7.7k agent adımı; 128 adımlık agent segmentlerinin %66-84'ü sinyalsiz; eğitimsiz kritik advantage'ı gürültüyle dolduruyor.
-- **Sabit değerlendirme:** [twrl/evaluation.py](twrl/evaluation.py), [scripts/eval_suite.py](scripts/eval_suite.py). Sabit seed seti, rastgele / ckpt_0000 / önceki checkpoint'e karşı iki taraflı, self-play davranışı; aynı checkpoint iki kez değerlendirilince JSON birebir aynı. Checkpoint başına ~130 s.
-- **Checkpoint/resume:** model, optimizer, update, agent step, RNG'ler (örnekleme, minibatch, torch global), env seed akışı, PPO ayarları ve çalıştırma argümanları; atomik yazma. `--resume` ile `SIGKILL` sonrası devam test edildi. Yarıda kalan episode'lar devam etmez (yeni episode başlar), bu yüzden devam eden koşu kesintisiz koşuyla bit düzeyinde aynı değildir.
+- **The bottleneck is the neural network computation.** Per agent step with 8 envs: inference ~107 µs, env (simulation + bridge) ~10 µs, PPO update ~555 µs. During collection, the 8 servers use 0.12 cores in total. 63% of the network is the first two convolutions at full resolution (25×33).
+- **Worker processes bring no benefit:** on the same 6 cores, collection speeds up by at most 12% (`worker_collect.json`), the update not at all. Not implemented. Increasing the env count (the inference batch) is more effective.
+- **`torch.compile`** speeds up the update 1.7×, with numbers equal to eager within ~1e-7; added as `--compile`. 6 torch threads is best (SMT slows it down at 12).
+- **End to end** (`throughput.csv`): 8 envs eager 1523, 16 envs compile 2344, 32 envs compile 2503 agent steps/s.
+- **Aim** (`aim_study.json`): even with perfect aim in real states, the fraction of hittable shots is 40% with 16 directions, 69% with 32, 96% with 64, and 100% with continuous aim. In a bandit learning test, a 2D Gaussian vector reaches 98% hits at 150k samples, categoricals 14-21%, a Gaussian over the angle 31%. Recommendation: a 2D Gaussian aim vector (the decision is the user's, not changed yet).
+- **Reward sparsity** (`reward_sparsity.json`, reward unchanged): a nonzero reward occurs in 0.24% of agent steps (random) up to 0.77% (end of the short training); kills are 1 per 50k to 1 per 7.7k agent steps; 66-84% of 128-step agent segments carry no signal; the untrained critic fills the advantage with noise.
+- **Fixed evaluation:** [twrl/evaluation.py](twrl/evaluation.py), [scripts/eval_suite.py](scripts/eval_suite.py). A fixed seed set, two-sided against random / ckpt_0000 / the previous checkpoint, self-play behavior; evaluating the same checkpoint twice gives identical JSON. ~130 s per checkpoint.
+- **Checkpoint/resume:** model, optimizer, update, agent steps, RNGs (sampling, minibatch, torch global), the env seed stream, PPO settings and run arguments; atomic writes. Resume after `SIGKILL` with `--resume` was tested. Episodes cut in half do not continue (a new episode starts), so a resumed run is not bit-identical to an uninterrupted one.
 
-## Faz 4: Tam oyun ve self-play
+## Phase 4: Full game and self-play
 
-- [ ] Silah değişimi (aksiyon + mevcut silah özellikleri), pickup'lar, daha büyük haritalar.
-- [ ] Checkpoint havuzu: rakip örnekleme (%80 son, %20 eski), Elo takibi, champion.
-- [ ] Görüş dışı rakip için hafıza: GRU veya frame stacking.
-- [ ] Hasar yardımcı ödülünün etkisini ölç (açık/kapalı karşılaştırma).
+- [ ] Weapon switching (action + current weapon features), pickups, larger maps.
+- [ ] Checkpoint pool: opponent sampling (80% latest, 20% older), Elo tracking, champion.
+- [ ] Memory for an out-of-view opponent: GRU or frame stacking.
+- [ ] Measure the effect of the auxiliary damage reward (on/off comparison).
 
-Kabul ölçütü: yeni checkpoint eski havuza karşı kararlı biçimde kazanır, politika çökmesi yok.
+Acceptance criterion: a new checkpoint beats the old pool consistently, with no policy collapse.
 
-## Faz 5: İzleme ve değerlendirme
+## Phase 5: Watching and evaluation
 
-- [x] Canlı spectator (SSH relay) ve demo kaydı: [WATCH.md](WATCH.md).
-- [ ] Politikayı normal hızda oynatan izleme modu, insan karşısında oyun.
-- [ ] Maç kayıtları, skor ve davranış metrikleri (isabet oranı, hook kullanımı, kaçınma).
+- [x] Live spectator (SSH relay) and demo recording: [WATCH.md](WATCH.md).
+- [ ] A watch mode that plays the policy at normal speed, and play against a human.
+- [ ] Match recordings, score and behavior metrics (hit rate, hook usage, dodging).
 
-## Açık riskler
+## Open risks
 
-- Faz 0'daki tick/sn sayısı (yukarıdaki karar kapısı).
-- Ödül seyrekliği: tmlp (eski proje) büyük olasılıkla bu yüzden zorlandı. Davranış öğreten shaping kullanılmıyor; ilk önlemler küçük harita, tek silah ve hasar yardımcı ödülü. Yetmezse önce curriculum (harita, spawn mesafesi) denenir; shaping ayrı bir karar olur.
-- Ayrık nişan kovaları ince isabeti sınırlayabilir. Gerekirse sürekli aksiyona geçilir.
-- 0.7.5 sürümünde tmlp yaması doğrudan taşınamaz (tmlp 0.6 üzerine).
+- The ticks/s number from Phase 0 (the decision gate above).
+- Reward sparsity: tmlp (the earlier project) most likely struggled because of this. No behavior-teaching shaping is used; the first measures are a small map, a single weapon and the auxiliary damage reward. If that is not enough, a curriculum (map, spawn distance) is tried first; shaping would be a separate decision.
+- Discrete aim bins may limit fine accuracy. If needed, switch to a continuous action.
+- The tmlp patch cannot be ported directly to 0.7.5 (tmlp is based on 0.6).

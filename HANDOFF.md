@@ -1,73 +1,78 @@
-# Devir notu (yeni oturum veya yeni hesap için)
+# Handoff note (for a new session or a new account)
 
-Bu repo bir Claude Code oturumunda yapılan analizin çıktısıdır. Yeni bir oturumda şu sırayla devam et.
+This repo is the output of an analysis done in a Claude Code session. In a new session, continue in this order.
 
-## Şu an nerede (2026-11-02, branch `phase3`)
+> **Development is paused (as of 2026-11-02).** Work can resume at any time from the state below. Everything lives on the `phase3` branch. The next step is the offline aim-brake probe described in "Where we stopped and next step".
 
-- Faz 0, 1 ve 2 bitti (bkz. [PLAN.md](PLAN.md)). Faz 3 (PPO) sürüyor, `phase3` branch'inde. Main'e merge yok.
-- Geçerli baseline: shots-only aim mask, dry-fire penalty, ReDo (`--redo-every 25 --redo-tau 0`) ve aim log_std floor `-2.3`. Tam argümanlar: `runs/phase3-redo-floor-exactkl/seq.sh`.
-- Performans karşılaştırmasında source of truth, ham eval dosyalarındaki `vs.initial` (= ckpt_0000). `vs.random` ile karıştırma.
+## Where we are (2026-11-02, branch `phase3`)
+
+- Phases 0, 1 and 2 are done (see [PLAN.md](PLAN.md)). Phase 3 (PPO) is in progress on the `phase3` branch. Nothing has been merged into main.
+- Current baseline: shots-only aim mask, dry-fire penalty, ReDo (`--redo-every 25 --redo-tau 0`) and an aim log_std floor of `-2.3`. Full arguments: `runs/phase3-redo-floor-exactkl/seq.sh`.
+- The source of truth for performance comparisons is `vs.initial` (= ckpt_0000) in the raw eval files. Do not confuse it with `vs.random`.
 - Seed 1, 15M, vs.ckpt_0000: K/D .078/0, W/L/D 5/0/59, damage 5.25/2.70 (ratio 1.94), hit .052, aim cos .37.
 
-### Son deneyler (sonuçlar `bench/results/`)
+### Latest experiments (results in `bench/results/`)
 
-- **`phase3-redo-floor`:** floor -2.3 ile koşu. 21.0M'de watchdog durdurdu. Sebep, minibatch k3 tahmininde (`aim_approx_kl`) tek bir 12.41'lik outlier; aynı update'te exact KL 0.145. Control'ü (`phase3-redo`) durduran 0.40 da aynı türden tek bir outlier'dı.
-- **Commit `1bb9a25`:** watchdog artık `aim_kl_exact` okuyor. 20-update mean ve 0.25 limiti aynı. Testler: `tests/test_learn_pipeline.py`.
-- **`phase3-redo-floor-exactkl`:** 15M'den 30M'e stop olmadan ulaştı.
-  - Exact KL en fazla 0.14. Dead neuron FC katmanlarında 0, conv2'de %3–4.
-  - 25M: ratio 1.90, hit .048, aim .29. Control 25M: ratio 1.48, aim -.03.
+- **`phase3-redo-floor`:** run with floor -2.3. The watchdog stopped it at 21.0M. The cause was a single 12.41 outlier in the minibatch k3 estimate (`aim_approx_kl`); the exact KL in the same update was 0.145. The 0.40 that stopped the control (`phase3-redo`) was the same kind of single outlier.
+- **Commit `1bb9a25`:** the watchdog now reads `aim_kl_exact`. The 20-update mean and the 0.25 limit are unchanged. Tests: `tests/test_learn_pipeline.py`.
+- **`phase3-redo-floor-exactkl`:** went from 15M to 30M without a stop.
+  - Exact KL at most 0.14. Dead neurons: 0 in the FC layers, 3-4% in conv2.
+  - 25M: ratio 1.90, hit .048, aim .29. Control at 25M: ratio 1.48, aim -.03.
   - 30M: ratio 1.82, hit .033, aim .19.
-  - Stabil, ama 15M'i geçmedi.
+  - Stable, but it did not pass the 15M result.
 
-### Açık bulgular
+### Open findings
 
-- **aim_off ≈ %72–76:** KL brake aynı gürültülü k3 tahminiyle tetikleniyor, aim loss minibatch'lerin yaklaşık dörtte üçünde kapalı.
-- **Floor sonrası KL artışı:** exact KL 0.090'dan 0.103'e çıktı, mu shift ise düştü. Eksen bazlı (x/y) ayrım loglanmıyor.
-- **Watchdog boşluğu:** watchdog her poll'da yalnızca son satıra bakıyor. grad_norm_max 23.6 (update 5246) görülmeden geçti. Düzeltilmedi; düzeltilirse run'ları durdurabilir, karar kullanıcının.
+- **aim_off ≈ 72-76%:** the KL brake fires on the same noisy k3 estimate, and the aim loss is switched off in about three quarters of the minibatches.
+- **KL growth after the floor:** exact KL rose from 0.090 to 0.103 while the mu shift fell. The x/y per-axis split is not logged.
+- **Watchdog gap:** at each poll the watchdog looks only at the last line. A grad_norm_max of 23.6 (update 5246) passed unseen. Not fixed; fixing it could stop runs, so the decision is the user's.
 
-## Kaldığımız yer ve sonraki adım
+## Where we stopped and next step
 
-Kullanıcı onayladı, ama henüz başlanmadı: **offline aim_off ve x/y KL ölçümü.** Training yok, checkpoint'lere yazılmıyor.
+The user approved this, but it has not been started: **offline aim_off and x/y KL measurement.** No training, nothing is written to checkpoints.
 
-1. Checkpoint'ler: `runs/phase3-redo-floor-exactkl/seed1/` altındaki 3663, 4883, 5372, 6104, 6836 ve 7325. Her birini `Trainer.load_state_dict` ile optimizer ve generator dahil yükle. Training'deki gibi ckpt_0000'a karşı 8 batch topla (bkz. `bench/collapse_probe.py`).
-2. Her batch'te, checkpoint'in kopyası üzerinde tek bir update koş. Brake sinyalinin üç varyantı:
-   - k3 (mevcut);
-   - minibatch exact Gaussian KL (rollout öncesi mu0/s0'a göre);
-   - brake yok.
-3. Önce kontrol: `train()` döngüsünün replica'sı k3 varyantında gerçek `Trainer.train` ile birebir aynı sonucu vermeli.
-4. Ölçülecekler: aim_off, brake'in ilk tetiklendiği minibatch, x ve y eksenleri ayrı mean-part KL, RMS Δμ, σ etkisi, k3/exact farkı.
-5. Çıktı `bench/results/phase3-aim-brake-probe/` altına; local commit.
+1. Checkpoints: 3663, 4883, 5372, 6104, 6836 and 7325 under `runs/phase3-redo-floor-exactkl/seed1/`. Load each with `Trainer.load_state_dict`, including optimizer and generator. As in training, collect 8 batches against ckpt_0000 (see `bench/collapse_probe.py`).
+2. On each batch, run a single update on a copy of the checkpoint. Three variants of the brake signal:
+   - k3 (current);
+   - minibatch exact Gaussian KL (relative to the pre-rollout mu0/s0);
+   - no brake.
+3. Control first: the replica of the `train()` loop must give exactly the same result as the real `Trainer.train` in the k3 variant.
+4. To measure: aim_off, the minibatch where the brake first fires, mean-part KL for the x and y axes separately, RMS Δμ, effect on σ, k3/exact difference.
+5. Output goes to `bench/results/phase3-aim-brake-probe/`; local commit.
 
-Kullanıcının kuralları:
-- Onay olmadan yeni training başlatma, LR, reward veya watchdog limitini değiştirme.
-- Self-play ya da scripted opponent kullanma.
-- Checkpoint, log veya run silme; yarım kalan run'ları `failed-*` / `aborted-*` altına arşivle.
-- Chase, relay ve spectator process'lerine dokunma.
-- Push ve PR için onay iste.
-- Raporlar Türkçe.
+The user's rules:
+- Do not start new training, or change LR, reward or the watchdog limit, without approval.
+- Do not use self-play or a scripted opponent for this probe.
+- Do not delete checkpoints, logs or runs; archive unfinished runs under `failed-*` / `aborted-*`.
+- Do not touch the chase, relay and spectator processes.
+- Ask for approval before push and PR.
+- Reports are in Turkish.
 
-## Çalışma ortamı
+(Checkpoints, `runs/` and training live on the author's remote server and are not in this repo. Only code and result files are here.)
 
-- Teeworlds kaynağı: `git clone --branch 0.7.5 https://github.com/teeworlds/teeworlds`, sonra `git -c url."https://github.com/".insteadOf="git://github.com/" submodule update --init` (`.gitmodules` eski `git://` adreslerini kullanıyor). Patch'i `git am patches/*.patch` ile uygula.
-- Build (CMake 4 ile): `CMAKE_POLICY_VERSION_MINIMUM=3.5 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DCLIENT=OFF`. Dummy'li benchmark için ayrıca `-DCMAKE_CXX_FLAGS=-DCONF_DEBUG` ile `build-bench`.
-- Satır numaraları alt ajan raporlarından alındı, tek tek doğrulanmadı. Kod yazmadan önce ilgili dosyalarda kontrol et.
-- `SERVER_TICK_SPEED` tanımının yeri doğrulanmadı (değeri 50).
+## Working environment
 
-## Yeni oturuma verilecek ilk mesaj
+- Teeworlds source: `git clone --branch 0.7.5 https://github.com/teeworlds/teeworlds`, then `git -c url."https://github.com/".insteadOf="git://github.com/" submodule update --init` (`.gitmodules` uses the old `git://` addresses). Apply the patches with `git am patches/*.patch`.
+- Build (with CMake 4): `CMAKE_POLICY_VERSION_MINIMUM=3.5 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DCLIENT=OFF`. For the benchmark with dummies, also build `build-bench` with `-DCMAKE_CXX_FLAGS=-DCONF_DEBUG`.
+- Line numbers come from sub-agent reports and were not verified one by one. Check them in the relevant files before writing code.
+- The location of the `SERVER_TICK_SPEED` definition is not verified (its value is 50).
+- The `seq.sh` / `run.sh` scripts under `bench/results/` and `runs/` expect the environment variable `REPO_DIR` to point to the repo checkout (see [SANITIZATION.md](SANITIZATION.md)).
 
-> teeworlds-rl reposundaki README.md, PLAN.md ve HANDOFF.md dosyalarını oku. Faz 0 (hız ölçümü) için dosya düzeyinde plan çıkar. Ben onaylamadan kod yazma.
+## First message for the new session
 
-## Aynı oturumu başka hesapta açmak
+> Read README.md, PLAN.md and HANDOFF.md in the teeworlds-rl repo (branch `phase3`). Summarize where we stopped and propose the next step. Do not start training or write code until I approve.
 
-Oturum hesaba bağlı değil, yerel dosya:
+## Opening the same session on another account
+
+The session is not tied to the account; it is a local file:
 
 ```
 ~/.claude/projects/<project-dir>/<session-id>.jsonl
 ```
 
-Aynı bilgisayarda: `/logout`, `/login` (yeni hesap), sonra proje klasöründe
+On the same computer: `/logout`, `/login` (new account), then in the project folder run
 `claude --resume <session-id>`.
-Başka bilgisayarda: dosyayı aynı yola kopyala, aynı komutu çalıştır.
-Oturum olmadan da devam edilebilir: bu repo yeterli bağlamı taşır.
+On another computer: copy the file to the same path and run the same command.
+You can also continue without the session: this repo carries enough context.
 
-Python ortamı numpy istiyor: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`. Testler: `TWRL_SERVER_DIR=<build-release> .venv/bin/python tests/test_env.py -v`.
+The Python environment needs numpy: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`. Tests: `TWRL_SERVER_DIR=<build-release> .venv/bin/python tests/test_env.py -v`.
